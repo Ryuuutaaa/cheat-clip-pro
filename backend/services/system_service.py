@@ -115,12 +115,29 @@ def clear_temp_files() -> dict:
     }
 
 
+def find_git_executable() -> str:
+    if shutil.which("git"):
+        return "git"
+    candidates = [
+        Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Git" / "cmd" / "git.exe",
+        Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")) / "Git" / "cmd" / "git.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Git" / "cmd" / "git.exe",
+        Path(os.environ.get("USERPROFILE", "")) / "scoop" / "apps" / "git" / "current" / "bin" / "git.exe",
+        Path(os.environ.get("USERPROFILE", "")) / "scoop" / "shims" / "git.exe",
+    ]
+    for c in candidates:
+        if c and c.exists():
+            return str(c.resolve())
+    return "git"
+
+
 def run_git_command(args: List[str], cwd: Optional[Path] = None, timeout: int = 15) -> Tuple[int, str, str]:
     """Runs a git command safely and returns (returncode, stdout, stderr)."""
     target_cwd = cwd or Path(_base_dir).parent
+    git_bin = find_git_executable()
     try:
         proc = subprocess.run(
-            ["git"] + args,
+            [git_bin] + args,
             cwd=str(target_cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

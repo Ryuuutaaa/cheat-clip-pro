@@ -130,8 +130,9 @@ async def api_perform_update():
     if "package.json" in changed_files:
         logger.info("package.json changed. Running npm install...")
         try:
-            cmd = "npm.cmd install" if os.name == "nt" else "npm install"
-            subprocess.run(cmd, shell=True, cwd=str(root_dir), timeout=120)
+            import shutil
+            npm_bin = shutil.which("npm.cmd") or shutil.which("npm") or "npm"
+            subprocess.run([npm_bin, "install"], shell=False, cwd=str(root_dir), timeout=120)
             updated_deps.append("Node modules (npm install)")
         except Exception as e:
             logger.warning(f"npm install warning: {e}")
@@ -140,8 +141,10 @@ async def api_perform_update():
     if any("requirements.txt" in f for f in changed_files):
         logger.info("requirements.txt changed. Running pip install...")
         try:
-            pip_cmd = f'"{sys.executable}" -m pip install -r backend/requirements.txt'
-            subprocess.run(pip_cmd, shell=True, cwd=str(root_dir), timeout=180)
+            req_file = root_dir / "backend" / "requirements.txt"
+            if not req_file.exists():
+                req_file = root_dir / "requirements.txt"
+            subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file)], shell=False, cwd=str(root_dir), timeout=180)
             updated_deps.append("Python dependencies (pip install)")
         except Exception as e:
             logger.warning(f"pip install warning: {e}")

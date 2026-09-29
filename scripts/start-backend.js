@@ -12,6 +12,45 @@ const reqPath = fs.existsSync(path.join(rootDir, 'backend', 'requirements.txt'))
 
 const isWindows = process.platform === 'win32';
 
+/**
+ * Safely get and harmonize PATH across Windows and Unix platforms.
+ */
+function getSanitizedEnv(pythonExe) {
+  const currentPath = process.env.PATH || process.env.Path || '';
+  const pathParts = currentPath.split(path.delimiter).filter(Boolean);
+
+  if (pythonExe && fs.existsSync(pythonExe)) {
+    const pyDir = path.dirname(pythonExe);
+    const pyParent = path.dirname(pyDir);
+    const pyScripts = path.join(pyDir, 'Scripts');
+    const pyBin = path.join(pyDir, 'bin');
+
+    const toPrepend = [pyDir, pyScripts, pyBin, pyParent].filter((p) => fs.existsSync(p));
+    for (const p of toPrepend.reverse()) {
+      if (!pathParts.includes(p)) {
+        pathParts.unshift(p);
+      }
+    }
+  }
+
+  // On Windows, also ensure common System32 and Git/FFmpeg directories exist in PATH
+  if (isWindows) {
+    const sys32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+    if (fs.existsSync(sys32) && !pathParts.includes(sys32)) {
+      pathParts.push(sys32);
+    }
+  }
+
+  const unifiedPath = pathParts.join(path.delimiter);
+  return {
+    ...process.env,
+    PATH: unifiedPath,
+    Path: unifiedPath,
+    PYTHONUNBUFFERED: '1',
+    PYTHONPATH: rootDir
+  };
+}
+
 function findPythonCandidates() {
   const candidates = [];
 
@@ -56,7 +95,36 @@ function findPythonCandidates() {
         } catch {}
       }
     }
-    const rootDrives = ['C:\\Python313\\python.exe', 'C:\\Python312\\python.exe', 'C:\\Python311\\python.exe', 'C:\\Python310\\python.exe'];
+
+    const progFiles = [
+      process.env['ProgramFiles'],
+      process.env['ProgramFiles(x86)'],
+      'C:\\Program Files',
+      'C:\\Program Files (x86)'
+    ].filter(Boolean);
+
+    for (const pf of progFiles) {
+      const pyBase = path.join(pf, 'Python');
+      if (fs.existsSync(pyBase)) {
+        try {
+          const dirs = fs.readdirSync(pyBase);
+          for (const d of dirs) {
+            const exe = path.join(pyBase, d, 'python.exe');
+            if (fs.existsSync(exe)) {
+              candidates.push({ exe, args: [], name: `ProgramFiles ${d}` });
+            }
+          }
+        } catch {}
+      }
+    }
+
+    const rootDrives = [
+      'C:\\Python314\\python.exe',
+      'C:\\Python313\\python.exe',
+      'C:\\Python312\\python.exe',
+      'C:\\Python311\\python.exe',
+      'C:\\Python310\\python.exe'
+    ];
     for (const p of rootDrives) {
       if (fs.existsSync(p)) {
         candidates.push({ exe: p, args: [], name: p });
@@ -69,14 +137,17 @@ function findPythonCandidates() {
 
 function testPython(candidate) {
   try {
+    const testEnv = getSanitizedEnv(candidate.exe);
+    // Thorough test: verify uvicorn, fastapi, and full backend config import
     const res = spawnSync(
       candidate.exe,
-      [...candidate.args, '-c', 'import sys, uvicorn, fastapi; print("OK")'],
+      [...candidate.args, '-c', 'import sys, uvicorn, fastapi; import backend.config; print("OK")'],
       {
         cwd: rootDir,
-        timeout: 8000,
+        timeout: 10000,
         encoding: 'utf-8',
-        shell: false
+        shell: false,
+        env: testEnv
       }
     );
 
@@ -84,15 +155,16 @@ function testPython(candidate) {
       return { works: true, hasDependencies: true };
     }
 
-    // Check if python runs at all (maybe only dependencies are missing)
+    // Basic test: check if Python runs at all
     const basicRes = spawnSync(
       candidate.exe,
       [...candidate.args, '--version'],
       {
         cwd: rootDir,
-        timeout: 4000,
+        timeout: 5000,
         encoding: 'utf-8',
-        shell: false
+        shell: false,
+        env: testEnv
       }
     );
 
@@ -110,13 +182,15 @@ function installDependencies(candidate) {
   console.log('\x1b[33m%s\x1b[0m', `📦 Installing Python dependencies from ${path.relative(rootDir, reqPath)}...`);
   console.log('\x1b[90m%s\x1b[0m', `   Running: ${candidate.exe} -m pip install -r "${reqPath}"`);
 
+  const pipEnv = getSanitizedEnv(candidate.exe);
   const pipRes = spawnSync(
     candidate.exe,
     [...candidate.args, '-m', 'pip', 'install', '-r', reqPath],
     {
       cwd: rootDir,
       stdio: 'inherit',
-      shell: false
+      shell: false,
+      env: pipEnv
     }
   );
 
@@ -143,7 +217,7 @@ async function start() {
     for (const c of candidates) {
       const test = testPython(c);
       if (test.works) {
-        console.log('\x1b[33m%s\x1b[0m', `⚠️ Python found (${c.name}), but required packages (fastapi, uvicorn) are missing.`);
+        console.log('\x1b[33m%s\x1b[0m', `⚠️ Python found (${c.name}), but required backend packages are missing or incomplete.`);
         const installed = installDependencies(c);
         if (installed) {
           selectedCandidate = c;
@@ -165,6 +239,7 @@ async function start() {
 
   const pythonExe = selectedCandidate.exe;
   const baseArgs = selectedCandidate.args;
+  const backendEnv = getSanitizedEnv(pythonExe);
 
   const uvicornArgs = [
     ...baseArgs,
@@ -175,7 +250,9 @@ async function start() {
     '0.0.0.0',
     '--port',
     '8000',
-    '--reload'
+    '--reload',
+    '--reload-dir',
+    path.join(rootDir, 'backend')
   ];
 
   console.log('\x1b[34m%s\x1b[0m', `🚀 Launching FastAPI server on http://127.0.0.1:8000 ...`);
@@ -184,11 +261,7 @@ async function start() {
     cwd: rootDir,
     shell: false,
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      PYTHONUNBUFFERED: '1',
-      PYTHONPATH: rootDir
-    }
+    env: backendEnv
   });
 
   backendProc.on('error', (err) => {
@@ -202,6 +275,7 @@ async function start() {
       console.error('\x1b[33m%s\x1b[0m', `💡 Common reasons:`);
       console.error('\x1b[33m%s\x1b[0m', `   1. Port 8000 is already in use by another app or zombie process.`);
       console.error('\x1b[33m%s\x1b[0m', `   2. Missing dependencies. Run: pip install -r backend/requirements.txt`);
+      console.error('\x1b[33m%s\x1b[0m', `   3. If space in username path on Windows, ensure venv was created properly.`);
     }
   });
 
@@ -216,3 +290,4 @@ async function start() {
 }
 
 start();
+

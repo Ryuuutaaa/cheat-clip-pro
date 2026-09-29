@@ -42,25 +42,55 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 def ensure_ffmpeg_in_path():
     """Auto-detect FFmpeg if it was installed via winget, scoop, or local paths but not in PATH."""
-    if shutil.which("ffmpeg"):
-        return
-    local_app_data = os.environ.get("LOCALAPPDATA", "")
-    candidate_roots = [
-        Path(local_app_data) / "Microsoft" / "WinGet" / "Packages" if local_app_data else None,
-        Path("C:/Program Files/ffmpeg/bin"),
-        Path("C:/ffmpeg/bin"),
-    ]
-    for root in candidate_roots:
-        if root and root.exists():
-            if (root / "ffmpeg.exe").exists():
-                os.environ["PATH"] = str(root) + os.pathsep + os.environ.get("PATH", "")
-                logger.info(f"Auto-added FFmpeg to PATH: {root}")
-                return
-            for exe in root.glob("**/ffmpeg.exe"):
-                bin_dir = str(exe.parent)
-                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-                logger.info(f"Auto-added FFmpeg to PATH: {bin_dir}")
-                return
+    current_path = os.environ.get("PATH") or os.environ.get("Path") or ""
+    path_parts = current_path.split(os.pathsep) if current_path else []
+
+    # Ensure Python runtime directories and Scripts are in PATH
+    try:
+        py_dir = Path(sys.executable).parent
+        for p in [py_dir, py_dir / "Scripts", py_dir / "bin"]:
+            if p.exists():
+                p_str = str(p.resolve())
+                if p_str not in path_parts:
+                    path_parts.insert(0, p_str)
+    except Exception:
+        pass
+
+    if not shutil.which("ffmpeg"):
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        user_profile = os.environ.get("USERPROFILE", "")
+        prog_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+        prog_files_x86 = os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")
+
+        candidate_roots = [
+            Path(local_app_data) / "Microsoft" / "WinGet" / "Packages" if local_app_data else None,
+            Path(local_app_data) / "Programs" / "ffmpeg" / "bin" if local_app_data else None,
+            Path(user_profile) / "scoop" / "apps" / "ffmpeg" / "current" / "bin" if user_profile else None,
+            Path(user_profile) / "scoop" / "shims" if user_profile else None,
+            Path(prog_files) / "ffmpeg" / "bin",
+            Path(prog_files_x86) / "ffmpeg" / "bin",
+            Path("C:/ffmpeg/bin"),
+            Path("C:/Program Files/ffmpeg/bin"),
+        ]
+        for root in candidate_roots:
+            if root and root.exists():
+                if (root / "ffmpeg.exe").exists() or (root / "ffmpeg").exists():
+                    r_str = str(root.resolve())
+                    if r_str not in path_parts:
+                        path_parts.insert(0, r_str)
+                    logger.info(f"Auto-added FFmpeg to PATH: {r_str}")
+                    break
+                for exe in root.glob("**/ffmpeg.exe"):
+                    bin_dir = str(exe.parent.resolve())
+                    if bin_dir not in path_parts:
+                        path_parts.insert(0, bin_dir)
+                    logger.info(f"Auto-added FFmpeg to PATH: {bin_dir}")
+                    break
+
+    # Re-assign unified PATH
+    new_path = os.pathsep.join(path_parts)
+    os.environ["PATH"] = new_path
+    os.environ["Path"] = new_path
 
 
 ensure_ffmpeg_in_path()
@@ -2418,9 +2448,11 @@ def build_ffmpeg_filtergraph(
     # 2. Subtitles & Title Burning via libass (.ass)
     # (If ass_subtitles_path is provided, it contains BOTH the title and subtitles rendered with exact matching fonts)
     if ass_subtitles_path and os.path.exists(ass_subtitles_path):
-        escaped_ass = str(ass_subtitles_path).replace("\\", "/").replace(":", "\\:")
+        raw_ass = str(Path(ass_subtitles_path).resolve()).replace("\\", "/")
+        escaped_ass = raw_ass.replace(":", "\\:").replace("'", "'\\''")
         if FONTS_DIR.exists() and any(FONTS_DIR.glob("*.ttf")):
-            escaped_fonts = str(FONTS_DIR).replace("\\", "/").replace(":", "\\:")
+            raw_fonts = str(FONTS_DIR.resolve()).replace("\\", "/")
+            escaped_fonts = raw_fonts.replace(":", "\\:").replace("'", "'\\''")
             sub_filter = f"{current_v}subtitles='{escaped_ass}':fontsdir='{escaped_fonts}'[v_final]"
         else:
             sub_filter = f"{current_v}subtitles='{escaped_ass}'[v_final]"

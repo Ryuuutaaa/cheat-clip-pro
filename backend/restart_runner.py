@@ -88,9 +88,10 @@ def main():
     logger.info("Launching 'npm run dev'...")
     try:
         if os.name == "nt":
-            # Launch in new console window on Windows
+            import shutil
+            npm_bin = shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
             subprocess.Popen(
-                ["cmd.exe", "/c", "npm run dev"],
+                ["cmd.exe", "/c", f'"{npm_bin}" run dev'],
                 cwd=str(root_dir),
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
