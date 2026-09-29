@@ -5,6 +5,7 @@ import { ClipStudioSection } from './components/ClipStudioSection';
 import { CookiesModal } from './components/CookiesModal';
 import { ClipTrimmerModal } from './components/ClipTrimmerModal';
 import { AppUpdateModal } from './components/AppUpdateModal';
+import { resilientFetch } from './utils/api';
 import { useLanguage } from './locales';
 import type { AnalyzeResponse, ViralClip, RenderSettings, BatchRenderProgress } from './types';
 
@@ -147,16 +148,35 @@ export default function App() {
     };
   }, [loading]);
 
-  // Check YouTube cookies configuration on mount
+  // Check YouTube cookies configuration on mount with resilient retry
   useEffect(() => {
-    fetch('/api/cookies')
-      .then(res => res.json())
-      .then(data => {
-        if (data && typeof data.exists === 'boolean') {
-          setHasCookies(data.exists);
+    let isMounted = true;
+    const checkCookies = async () => {
+      try {
+        const res = await resilientFetch('/api/cookies', { maxRetries: 5, retryDelay: 1000, silent: true });
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data && typeof data.exists === 'boolean') {
+            setHasCookies(data.exists);
+          }
         }
-      })
-      .catch(() => {});
+      } catch {
+        // Backend still booting or offline
+      }
+    };
+
+    checkCookies();
+
+    // Recheck when user returns to window (e.g., after modifying cookies.txt)
+    const onFocus = () => {
+      checkCookies();
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   // Results
@@ -529,7 +549,11 @@ export default function App() {
       }
       setLoadingModels(true);
       try {
-        const res = await fetch(`/api/models?api_key=${encodeURIComponent(cleanKey)}`);
+        const res = await resilientFetch(`/api/models?api_key=${encodeURIComponent(cleanKey)}`, {
+          maxRetries: 3,
+          retryDelay: 800,
+          silent: true
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.models && data.models.length > 0) {

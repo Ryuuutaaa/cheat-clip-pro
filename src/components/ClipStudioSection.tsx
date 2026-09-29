@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLanguage } from '../locales';
+import { resilientFetch } from '../utils/api';
 import type {
   ViralClip,
   RenderSettings,
@@ -262,7 +263,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   useEffect(() => {
     const fetchHardwareSupport = async () => {
       try {
-        const res = await fetch('/api/hardware-accel');
+        const res = await resilientFetch('/api/hardware-accel', { maxRetries: 4, retryDelay: 1000, silent: true });
         if (res.ok) {
           const data: HardwareAccelInfo = await res.json();
           setHardwareInfo(data);

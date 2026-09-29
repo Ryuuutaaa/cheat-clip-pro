@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../locales';
+import { resilientFetch } from '../utils/api';
 
 interface CookiesModalProps {
   isOpen: boolean;
@@ -23,18 +24,20 @@ export const CookiesModal: React.FC<CookiesModalProps> = ({
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/cookies');
-      const data = await res.json();
-      setHasCookies(data.exists);
-      setCookieSize(data.size || 0);
-      setSampleLines(data.sample_lines || []);
-      if (data.cookies_content) {
-        setCookieText(data.cookies_content);
-      } else if (!data.exists) {
-        setCookieText('');
-      }
-      if (onCookieStatusChange) {
-        onCookieStatusChange(data.exists);
+      const res = await resilientFetch('/api/cookies', { maxRetries: 3, retryDelay: 800, silent: true });
+      if (res.ok) {
+        const data = await res.json();
+        setHasCookies(data.exists);
+        setCookieSize(data.size || 0);
+        setSampleLines(data.sample_lines || []);
+        if (data.cookies_content) {
+          setCookieText(data.cookies_content);
+        } else if (!data.exists) {
+          setCookieText('');
+        }
+        if (onCookieStatusChange) {
+          onCookieStatusChange(data.exists);
+        }
       }
     } catch {
       // Backend might not be reachable yet
