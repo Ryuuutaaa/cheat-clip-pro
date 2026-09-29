@@ -2,7 +2,7 @@ import type { Translations } from './en';
 
 export const id: Translations = {
   header: {
-    subtitle: "Auto Clipper Bertenaga AI",
+    subtitle: "Advanced AI YouTube & Video Clipper / Downloader",
     supportProject: "Dukung Proyek Ini",
     cookiesBtn: "Cookies",
     cookiesStatusActive: "● 1080p",

@@ -1,6 +1,6 @@
 export const en = {
   header: {
-    subtitle: "AI Powered Auto Clipper",
+    subtitle: "Advanced AI YouTube & Video Clipper / Downloader",
     supportProject: "Support This Project",
     cookiesBtn: "Cookies",
     cookiesStatusActive: "● 1080p",
@@ -37,7 +37,7 @@ export const en = {
     gdriveUrlPlaceholder: "Paste Google Drive share link (e.g. https://drive.google.com/file/d/.../view)",
     hackClips: "Hack Clips",
     processing: "Processing...",
-    
+
     // AI Engine settings
     aiSettingsTitle: "AI Engine Settings",
     apiKeyLabel: "Gemini API Key",
@@ -51,7 +51,7 @@ export const en = {
     fetchingModels: "Fetching available...",
     resilienceTip: "Free Tier Resilience:",
     resilienceDesc: "If a model encounters quota limits or errors, Cheat Clip Pro automatically tries all newer and older Flash models (3.x, 2.5, 2.0, 1.5) fetched from your API key until clips are successfully found!",
-    
+
     // Customization
     clipCustomizationTitle: "Clip Customization",
     targetDuration: "Target Clip Duration",
@@ -70,7 +70,7 @@ export const en = {
     clipCountAutoTip: "AI analyzes conversation flow and intelligently generates clips for all high-interest discussion topics.",
     approxClips: (count: number) => `≈ ${count} Clips`,
     clipCountTip: (target: number, rangeStr: string) => `The AI will target around ${target} clips, adjusting dynamically (e.g., ${rangeStr} clips) to ensure maximum quality without hard constraints.`,
-    
+
     // Subtitles source
     subtitlesSource: "Subtitles Source",
     autoFetchYoutube: "Auto-fetch from YouTube",

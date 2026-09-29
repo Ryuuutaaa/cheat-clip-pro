@@ -1,4 +1,4 @@
-import { spawn, execSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -6,6 +6,9 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
+const reqPath = fs.existsSync(path.join(rootDir, 'backend', 'requirements.txt'))
+  ? path.join(rootDir, 'backend', 'requirements.txt')
+  : path.join(rootDir, 'requirements.txt');
 
 const isWindows = process.platform === 'win32';
 
@@ -66,31 +69,58 @@ function findPythonCandidates() {
 
 function testPython(candidate) {
   try {
-    const checkCmd = [
-      ...candidate.args,
-      '-c',
-      "import sys; import uvicorn, fastapi; print('OK')"
-    ];
-    const res = execSync(`"${candidate.exe}" ${checkCmd.join(' ')}`, {
-      cwd: rootDir,
-      timeout: 6000,
-      stdio: ['pipe', 'pipe', 'pipe']
-    }).toString();
-    return { works: true, hasDependencies: res.includes('OK') };
-  } catch (err) {
+    const res = spawnSync(
+      candidate.exe,
+      [...candidate.args, '-c', 'import sys, uvicorn, fastapi; print("OK")'],
+      {
+        cwd: rootDir,
+        timeout: 8000,
+        encoding: 'utf-8',
+        shell: false
+      }
+    );
+
+    if (res.status === 0 && res.stdout && res.stdout.includes('OK')) {
+      return { works: true, hasDependencies: true };
+    }
+
     // Check if python runs at all (maybe only dependencies are missing)
-    try {
-      const basicRes = execSync(`"${candidate.exe}" ${candidate.args.join(' ')} --version`, {
+    const basicRes = spawnSync(
+      candidate.exe,
+      [...candidate.args, '--version'],
+      {
         cwd: rootDir,
         timeout: 4000,
-        stdio: ['pipe', 'pipe', 'pipe']
-      }).toString();
-      if (basicRes.toLowerCase().includes('python')) {
-        return { works: true, hasDependencies: false };
+        encoding: 'utf-8',
+        shell: false
       }
-    } catch {}
-    return { works: false, hasDependencies: false };
+    );
+
+    const versionOutput = (basicRes.stdout || '') + (basicRes.stderr || '');
+    if (basicRes.status === 0 || versionOutput.toLowerCase().includes('python')) {
+      return { works: true, hasDependencies: false };
+    }
+  } catch (err) {
+    // Ignore execution errors
   }
+  return { works: false, hasDependencies: false };
+}
+
+function installDependencies(candidate) {
+  console.log('\x1b[33m%s\x1b[0m', `📦 Installing Python dependencies from ${path.relative(rootDir, reqPath)}...`);
+  console.log('\x1b[90m%s\x1b[0m', `   Running: ${candidate.exe} -m pip install -r "${reqPath}"`);
+
+  const pipRes = spawnSync(
+    candidate.exe,
+    [...candidate.args, '-m', 'pip', 'install', '-r', reqPath],
+    {
+      cwd: rootDir,
+      stdio: 'inherit',
+      shell: false
+    }
+  );
+
+  return pipRes.status === 0;
 }
 
 async function start() {
@@ -108,20 +138,33 @@ async function start() {
     }
   }
 
+  // If no Python candidate has dependencies ready, find the best working Python and install them
   if (!selectedCandidate) {
-    // Pick the first available working Python without running pip install
     for (const c of candidates) {
       const test = testPython(c);
       if (test.works) {
-        selectedCandidate = c;
-        console.log('\x1b[33m%s\x1b[0m', `⚠️ Using Python: ${c.name} (${c.exe})`);
+        console.log('\x1b[33m%s\x1b[0m', `⚠️ Python found (${c.name}), but required packages (fastapi, uvicorn) are missing.`);
+        const installed = installDependencies(c);
+        if (installed) {
+          selectedCandidate = c;
+          console.log('\x1b[32m%s\x1b[0m', `✓ Dependencies installed successfully on ${c.name}`);
+        } else {
+          console.warn('\x1b[31m%s\x1b[0m', `⚠️ Failed to auto-install dependencies on ${c.name}.`);
+        }
         break;
       }
     }
   }
 
-  const pythonExe = selectedCandidate ? selectedCandidate.exe : 'python';
-  const baseArgs = selectedCandidate ? selectedCandidate.args : [];
+  if (!selectedCandidate) {
+    console.error('\x1b[31m%s\x1b[0m', '❌ No working Python installation found!');
+    console.error('\x1b[33m%s\x1b[0m', '💡 Please install Python 3.10+ from https://www.python.org/downloads/');
+    console.error('\x1b[33m%s\x1b[0m', '   Make sure to check "Add Python to PATH" during installation.');
+    process.exit(1);
+  }
+
+  const pythonExe = selectedCandidate.exe;
+  const baseArgs = selectedCandidate.args;
 
   const uvicornArgs = [
     ...baseArgs,
@@ -156,8 +199,9 @@ async function start() {
   backendProc.on('exit', (code, signal) => {
     if (code !== 0 && code !== null) {
       console.error('\x1b[31m%s\x1b[0m', `⚠️ Backend server process exited with code ${code}.`);
-      console.error('\x1b[33m%s\x1b[0m', `💡 If port 8000 was in use or dependencies missing, run:`);
-      console.error('\x1b[33m%s\x1b[0m', `   pip install -r backend/requirements.txt`);
+      console.error('\x1b[33m%s\x1b[0m', `💡 Common reasons:`);
+      console.error('\x1b[33m%s\x1b[0m', `   1. Port 8000 is already in use by another app or zombie process.`);
+      console.error('\x1b[33m%s\x1b[0m', `   2. Missing dependencies. Run: pip install -r backend/requirements.txt`);
     }
   });
 
