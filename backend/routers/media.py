@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile, status
