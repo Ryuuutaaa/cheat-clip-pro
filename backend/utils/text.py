@@ -323,3 +323,44 @@ def sanitize_first_person_title(title: str, speaker_or_channel: str = "", lang: 
     t = re.sub(r"^(pendapat|opini)\s+(saya|aku|gue|gw)\b", rf"Opini {indo_subject}", t, flags=re.IGNORECASE)
 
     return t.strip()
+
+
+def is_safe_remote_url(url: str, allowed_domains: Optional[set] = None) -> bool:
+    """
+    Validates if a URL is safe to fetch remotely, preventing SSRF attacks to
+    local loopback, private IP subnets, or cloud metadata services.
+    """
+    if not url:
+        return False
+    u = url.strip()
+    try:
+        import ipaddress
+        import urllib.parse
+
+        parsed = urllib.parse.urlsplit(u)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = (parsed.hostname or "").lower().strip()
+        if not hostname:
+            return False
+
+        # Block localhost / link-local / loopback hostnames
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "metadata.google.internal"):
+            return False
+
+        # Check if hostname is an IP address and verify if private/reserved
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+        except ValueError:
+            # Not an IP literal, it's a domain name
+            pass
+
+        if allowed_domains:
+            if not any(hostname == d or hostname.endswith("." + d) for d in allowed_domains):
+                return False
+
+        return True
+    except Exception:
+        return False

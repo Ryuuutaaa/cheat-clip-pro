@@ -1400,6 +1400,13 @@ def render_title_overlay_png(
     return output_png_path
 
 
+def escape_ass_text(text: str) -> str:
+    """Escapes special ASS subtitle control characters (curly braces, backslashes) to prevent tag injection."""
+    if not text:
+        return ""
+    return str(text).replace("{", "｛").replace("}", "｝").replace("\\", "＼")
+
+
 def generate_ass_file(
     words: List[Dict[str, Any]],
     style_preset: str,
@@ -1438,8 +1445,9 @@ def generate_ass_file(
 
     # 1. Format Title & Determine Line Count
     if title_text and title_position != "none":
+        sanitized_title = escape_ass_text(apply_text_case(title_text, text_case))
         formatted_title, title_line_count = wrap_title_smart(
-            apply_text_case(title_text, text_case),
+            sanitized_title,
             max_single_len=max_wrap_len
         )
     else:
@@ -1634,7 +1642,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             raw_text = clean_caption_text(w.get("word", "").strip())
             if not raw_text:
                 continue
-            w_text = apply_text_case(raw_text, text_case)
+            w_text = escape_ass_text(apply_text_case(raw_text, text_case))
             st = max(0.0, float(w.get("start", 0.0)))
             et = max(st + 0.08, float(w.get("end", st + 0.25)))
             valid_words.append({"word_text": w_text, "start": st, "end": et, "raw": w})
