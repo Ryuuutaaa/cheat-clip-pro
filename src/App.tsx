@@ -612,6 +612,25 @@ export default function App() {
     localStorage.setItem(`marked_clips_${result.video_id}`, JSON.stringify(updated));
   };
 
+  const toggleAllMarkedClips = (forceSelect?: boolean) => {
+    if (!result?.video_id || !result.clips || result.clips.length === 0) return;
+    const allCurrentlyMarked = result.clips.every(c => !!markedClips[`${c.start_time}_${c.end_time}`]);
+    const shouldSelect = forceSelect !== undefined ? forceSelect : !allCurrentlyMarked;
+
+    const updated: Record<string, boolean> = { ...markedClips };
+    if (shouldSelect) {
+      result.clips.forEach(clip => {
+        updated[`${clip.start_time}_${clip.end_time}`] = true;
+      });
+    } else {
+      result.clips.forEach(clip => {
+        delete updated[`${clip.start_time}_${clip.end_time}`];
+      });
+    }
+    setMarkedClips(updated);
+    localStorage.setItem(`marked_clips_${result.video_id}`, JSON.stringify(updated));
+  };
+
   // Scan localStorage and build the history list from cache keys
   const refreshHistory = () => {
     const entries: HistoryEntry[] = [];
@@ -4061,9 +4080,35 @@ Transcript:
               </div>
 
               {/* Stats and Exports */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                <div>
-                  {t.results.showingClipsCount(sortedClips.length, result.clips.length)}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span>{t.results.showingClipsCount(sortedClips.length, result.clips.length)}</span>
+                  {result.clips && result.clips.length > 0 && (
+                    <button
+                      type="button"
+                      className="action-link-btn mark-all-clips-btn"
+                      onClick={() => toggleAllMarkedClips()}
+                      title={result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? t.results.unmarkAllClips : t.results.markAllClips}
+                      style={{
+                        background: result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? 'rgba(239, 68, 68, 0.12)' : 'rgba(168, 85, 247, 0.12)',
+                        border: result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(168, 85, 247, 0.35)',
+                        color: result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? '#f87171' : 'var(--primary)',
+                        borderRadius: '5px',
+                        padding: '0.2rem 0.55rem',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                        transition: 'var(--transition-smooth)'
+                      }}
+                    >
+                      {result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`])
+                        ? t.results.unmarkAllClips
+                        : t.results.markAllClips}
+                    </button>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                   <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -4468,6 +4513,7 @@ Transcript:
           onStartRender={handleStartBatchRender}
           isRendering={isLaunchingRender}
           onToggleMarkClip={(clip) => toggleMarkedClip(`${clip.start_time}_${clip.end_time}`)}
+          onToggleAllClips={toggleAllMarkedClips}
           batchProgress={batchProgress}
           onDismissProgress={() => {
             if (batchEventSourceRef.current) {

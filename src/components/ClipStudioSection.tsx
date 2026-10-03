@@ -29,6 +29,7 @@ interface ClipStudioSectionProps {
   onStartRender: (settings: RenderSettings) => void;
   isRendering: boolean;
   onToggleMarkClip?: (clip: ViralClip) => void;
+  onToggleAllClips?: (forceSelect?: boolean) => void;
   batchProgress?: BatchRenderProgress | null;
   onDismissProgress?: () => void;
   onRetryClip?: (clipIndex?: number) => void;
@@ -176,6 +177,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   onStartRender,
   isRendering,
   onToggleMarkClip,
+  onToggleAllClips,
   batchProgress,
   onDismissProgress,
   onRetryClip,
@@ -630,6 +632,19 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     }
   };
 
+  const handleToggleAllClips = () => {
+    const isAllSelected = allClips.length > 0 && selectedClips.length === allClips.length;
+    if (onToggleAllClips) {
+      onToggleAllClips(!isAllSelected);
+    } else {
+      if (isAllSelected) {
+        setSelectedClips([]);
+      } else {
+        setSelectedClips([...allClips]);
+      }
+    }
+  };
+
   const handleClearTempClick = () => {
     setShowClearConfirmModal(true);
   };
@@ -1016,6 +1031,13 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         subCenterY: 50,
       };
     }
+    if (ratio === '16:9_landscape') {
+      return {
+        titleY: lines >= 3 ? 5.5 : lines === 2 ? 6.5 : 8.0,
+        subtitleY: 10.0,
+        subCenterY: 50,
+      };
+    }
     if (ratio === '1:1') {
       return {
         titleY: lines >= 3 ? 11.5 : lines === 2 ? 13.5 : 17.0,
@@ -1059,6 +1081,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         maxSubY: 50.0,
       };
     }
+    if (ratio === '16:9_landscape') {
+      return {
+        maxTitleY: 40.0,
+        maxSubY: 50.0,
+      };
+    }
     if (ratio === '1:1') {
       return {
         maxTitleY: lines >= 4 ? 12.5 : lines === 3 ? 13.5 : lines === 2 ? 15.0 : 18.0,
@@ -1084,15 +1112,17 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   };
 
   const getCenterBounds = (ratio: AspectRatioOption) => {
+    if (ratio === '16:9_landscape') return { min: 20, max: 80 };
     if (ratio === '16:9') return { min: 38, max: 62 };
     if (ratio === '4:3') return { min: 34, max: 66 };
     if (ratio === '1:1') return { min: 28, max: 72 };
     return { min: 25, max: 75 };
   };
 
-  // Preview phone dimensions (enlarged for crystal-clear layout framing)
-  const phoneWidth = 320;
-  const phoneHeight = 569;
+  // Preview framing dimensions (adapts dynamically for True Landscape vs Vertical)
+  const isLandscape = aspectRatio === '16:9_landscape';
+  const phoneWidth = isLandscape ? 480 : 320;
+  const phoneHeight = isLandscape ? 270 : 569;
 
   const currentClipKey = currentPreviewClip ? `${currentPreviewClip.start_time}_${currentPreviewClip.end_time}` : '';
   const currentCustomTitle = currentClipKey ? customClipTitles[currentClipKey] : undefined;
@@ -1308,10 +1338,20 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 <span className="aspect-name">{t.studio.ratio169}</span>
                 <span className="aspect-sub">{t.studio.ratio169Sub}</span>
               </button>
+
+              <button
+                type="button"
+                className={`aspect-card-btn ${aspectRatio === '16:9_landscape' ? 'active' : ''}`}
+                onClick={() => handleSelectAspectRatio('16:9_landscape')}
+              >
+                <div className="aspect-icon-box ratio-169landscape"></div>
+                <span className="aspect-name">{t.studio.ratio169Landscape || '16:9 Landscape'}</span>
+                <span className="aspect-sub">{t.studio.ratio169LandscapeSub || 'True 1920×1080'}</span>
+              </button>
             </div>
 
             {/* Background Style when bars are active */}
-            {aspectRatio !== '9:16' && (
+            {aspectRatio !== '9:16' && aspectRatio !== '16:9_landscape' && (
               <div className="studio-sub-toggle" style={{ marginTop: '0.75rem' }}>
                 <span className="sub-toggle-label">{t.studio.marginBackdrop}</span>
                 <div className="toggle-pill-group">
@@ -2881,12 +2921,147 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             </div>
           </div>
 
-          {/* 9. Selected Clips Checklist */}
+          {/* Batch Clip Hook / Title Customizer for All Selected Clips */}
           <div className="studio-card-group">
             <div className="group-header">
+              <span className="group-title">{t.studio.batchClipTitlesTitle}</span>
+              <span className="group-badge">
+                {selectedClips.length} {selectedClips.length === 1 ? t.studio.clipSelectedSingle : t.studio.clipSelectedPlural}
+              </span>
+            </div>
+
+            <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: '0 0 0.75rem 0', lineHeight: 1.45 }}>
+              {t.studio.batchClipTitlesDesc}
+            </p>
+
+            {selectedClips.length === 0 ? (
+              <div className="batch-titles-empty-box">
+                <span>ℹ️</span>
+                <span>{t.studio.batchClipTitlesEmpty}</span>
+              </div>
+            ) : (
+              <div className="batch-titles-list">
+                {selectedClips.map((clip, i) => {
+                  const clipKey = `${clip.start_time}_${clip.end_time}`;
+                  const custom = customClipTitles[clipKey];
+                  const originalSuggestion = (clip.title_suggestion || clip.title || '').trim();
+                  const baseTitle = (custom !== undefined && custom.trim() !== '') ? custom : originalSuggestion;
+                  const hasCustomTitle = custom !== undefined && custom.trim() !== '' && custom.trim() !== originalSuggestion;
+                  const isCurrentActivePreview = currentPreviewClip && currentPreviewClip.start_time === clip.start_time && currentPreviewClip.end_time === clip.end_time;
+                  const originalIndex = allClips.findIndex(c => c.start_time === clip.start_time && c.end_time === clip.end_time);
+                  const clipDisplayNum = originalIndex !== -1 ? originalIndex + 1 : i + 1;
+
+                  return (
+                    <div
+                      key={clipKey}
+                      className={`batch-title-card-item ${isCurrentActivePreview ? 'active-preview-border' : ''}`}
+                    >
+                      <div className="batch-title-card-header">
+                        <div className="batch-title-card-left">
+                          <span className="batch-title-clip-badge">#{clipDisplayNum}</span>
+                          <span className="batch-title-ts">
+                            ⏱️ {Math.floor(clip.start_time / 60)}:{(clip.start_time % 60).toFixed(0).padStart(2, '0')} - {Math.floor(clip.end_time / 60)}:{(clip.end_time % 60).toFixed(0).padStart(2, '0')} ({(clip.end_time - clip.start_time).toFixed(0)}s)
+                          </span>
+                          {typeof clip.virality_score === 'number' && (
+                            <span className="batch-title-score-pill">🔥 {clip.virality_score}%</span>
+                          )}
+                        </div>
+
+                        <div className="batch-title-card-right">
+                          {hasCustomTitle && (
+                            <button
+                              type="button"
+                              className="batch-title-reset-btn"
+                              onClick={() => {
+                                setCustomClipTitles(prev => {
+                                  const next = { ...prev };
+                                  delete next[clipKey];
+                                  return next;
+                                });
+                              }}
+                              title={t.studio.resetToAiTitle}
+                            >
+                              ↺ {t.studio.resetToAiTitle}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className={`batch-title-preview-btn ${isCurrentActivePreview ? 'is-active' : ''}`}
+                            onClick={() => {
+                              if (originalIndex !== -1) {
+                                setPreviewClipIndex(originalIndex);
+                              }
+                            }}
+                            title={isCurrentActivePreview ? t.studio.batchClipTitlesActivePreview : t.studio.batchClipTitlesPreviewBtn}
+                          >
+                            {isCurrentActivePreview ? `● ${t.studio.batchClipTitlesActivePreview}` : t.studio.batchClipTitlesPreviewBtn}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="batch-title-input-wrapper">
+                        <input
+                          type="text"
+                          className="batch-title-input"
+                          placeholder={originalSuggestion || t.studio.titlePlaceholder}
+                          value={custom !== undefined ? custom : (originalSuggestion || '')}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCustomClipTitles(prev => ({
+                              ...prev,
+                              [clipKey]: val,
+                            }));
+                          }}
+                        />
+                      </div>
+
+                      {(titlePrefix || titleSuffix) && (
+                        <div className="batch-title-combined-preview">
+                          <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{t.studio.batchClipTitlesCombinedPreview}</span>
+                          <span>
+                            {titlePrefix && <span className="pfx-highlight">{titlePrefix}</span>}
+                            <span className="base-highlight">{baseTitle || 'YOUR VIRAL HOOK TITLE'}</span>
+                            {titleSuffix && <span className="sfx-highlight">{titleSuffix}</span>}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 9. Selected Clips Checklist */}
+          <div className="studio-card-group">
+            <div className="group-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '0.5rem' }}>
               <span className="group-title">
                 {t.studio.batchChecklist(selectedClips.length, allClips.length)}
               </span>
+              {allClips.length > 0 && (
+                <button
+                  type="button"
+                  className="studio-checklist-toggle-btn"
+                  onClick={handleToggleAllClips}
+                  title={selectedClips.length === allClips.length ? t.studio.unmarkAllClips : t.studio.markAllClips}
+                  style={{
+                    background: selectedClips.length === allClips.length ? 'rgba(239, 68, 68, 0.12)' : 'rgba(168, 85, 247, 0.15)',
+                    border: selectedClips.length === allClips.length ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(168, 85, 247, 0.4)',
+                    color: selectedClips.length === allClips.length ? '#f87171' : 'var(--primary, #a855f7)',
+                    borderRadius: '6px',
+                    padding: '0.22rem 0.55rem',
+                    fontSize: '0.72rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.3rem',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  {selectedClips.length === allClips.length ? t.studio.unmarkAllClips : t.studio.markAllClips}
+                </button>
+              )}
             </div>
             <div className="batch-clips-list" style={{ maxHeight: '200px', overflowY: 'auto' }}>
               {allClips.map((clip, i) => {
@@ -2948,7 +3123,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
             <div
               ref={phoneContainerRef}
-              className="phone-wireframe-container real-preview-container"
+              className={`phone-wireframe-container real-preview-container ${isLandscape ? 'is-landscape' : ''}`}
               style={{ width: `${phoneWidth}px`, height: `${phoneHeight}px` }}
             >
               {/* Background Backdrop (Black or Ambient Blurred) */}
@@ -2956,7 +3131,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 className="real-frame-bg-layer"
                 style={{ backgroundColor: '#000000' }}
               >
-                {backgroundStyle === 'blurred' && aspectRatio !== '9:16' && (
+                {backgroundStyle === 'blurred' && aspectRatio !== '9:16' && aspectRatio !== '16:9_landscape' && (
                   <div className="ambient-blur-backdrop" style={{ overflow: 'hidden' }}>
                     {videoUrl && (videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') || videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') || videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')) ? (
                       <video
@@ -2995,7 +3170,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   {/* Top Facecam Box if split_top_cam */}
                   {streamerPreset === 'split_top_cam' && (
                     <>
-                      <div className={`wireframe-split-cam-box aspect-${aspectRatio.replace(':', '')}`}>
+                      <div className={`wireframe-split-cam-box aspect-${aspectRatio.replace(':', '').replace('_', '')}`}>
                         <div className="wireframe-facecam-skeleton">
                           <div className="skeleton-grid-mesh"></div>
                           <div className="skeleton-reticle">
@@ -3026,7 +3201,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   )}
 
                   {/* Content scaled by aspect ratio with real playable video */}
-                  <div className={`wireframe-content-box aspect-${aspectRatio.replace(':', '')} ${streamerPreset === 'split_top_cam' ? 'split-mode' : ''}`}>
+                  <div className={`wireframe-content-box aspect-${aspectRatio.replace(':', '').replace('_', '')} ${streamerPreset === 'split_top_cam' ? 'split-mode' : ''}`}>
                     <div className="wireframe-content-inner">
                       {/* HTML5 or YouTube Player slot - ALWAYS STABLY MOUNTED */}
                       {videoUrl && (videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') || videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') || videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')) ? (
@@ -3132,6 +3307,11 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         fontFamily: captionFont,
                         fontSize: (() => {
                           const effectiveSize = titleFontSize || fontSize;
+                          if (isLandscape) {
+                            if (effectiveSize === 'small') return titleLineCount >= 3 ? '12px' : '14px';
+                            if (effectiveSize === 'big') return titleLineCount >= 3 ? '19px' : '22px';
+                            return titleLineCount >= 3 ? '15px' : '17.5px';
+                          }
                           if (effectiveSize === 'small') {
                             return titleLineCount >= 3 ? '14px' : '16.5px';
                           }
@@ -3187,7 +3367,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       className="wireframe-caption-text"
                       style={{
                         fontFamily: captionFont,
-                        fontSize: fontSize === 'small' ? '17px' : fontSize === 'big' ? '25px' : '20.5px',
+                        fontSize: isLandscape
+                          ? (fontSize === 'small' ? '13px' : fontSize === 'big' ? '20px' : '16px')
+                          : (fontSize === 'small' ? '17px' : fontSize === 'big' ? '25px' : '20.5px'),
                         fontWeight: 800,
                         letterSpacing: '0.03em',
                         textAlign: 'center',
@@ -3368,13 +3550,17 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             <div className="studio-render-history-card">
               <div className="history-card-header">
                 <span className="history-card-title">{t.studio.renderSpecsTitle}</span>
-                <span className="history-badge-pill">1080×1920</span>
+                <span className="history-badge-pill">
+                  {aspectRatio === '16:9' ? '1920×1080' : aspectRatio === '1:1' ? '1080×1080' : aspectRatio === '4:3' ? '1440×1080' : '1080×1920'}
+                </span>
               </div>
 
               <div className="history-info-grid">
                 <div className="history-info-item">
                   <span className="info-key">{t.studio.specResolution}</span>
-                  <span className="info-val">{t.studio.specResolutionVal}</span>
+                  <span className="info-val">
+                    {aspectRatio === '16:9' ? '1920×1080 (16:9 Landscape)' : aspectRatio === '1:1' ? '1080×1080 (1:1 Square)' : aspectRatio === '4:3' ? '1440×1080 (4:3 Classic)' : '1080×1920 (9:16 Portrait)'}
+                  </span>
                 </div>
                 <div className="history-info-item history-hardware-item">
                   <span className="info-key">{t.studio.specHardware}</span>

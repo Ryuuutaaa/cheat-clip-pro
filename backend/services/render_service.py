@@ -99,6 +99,8 @@ async def render_single_batch_clip(
             title_png_filename = f"{batch_id}_clip_{idx}_title.png"
             title_png_path = str(TEMP_DIR / title_png_filename)
             try:
+                canvas_w = 1920 if (settings.aspect_ratio == "16:9_landscape") else 1080
+                canvas_h = 1080 if (settings.aspect_ratio == "16:9_landscape") else 1920
                 rendered_overlay = await asyncio.to_thread(
                     render_title_overlay_png,
                     title_text=display_title,
@@ -109,6 +111,8 @@ async def render_single_batch_clip(
                     text_case=settings.text_case or "uppercase",
                     title_position=settings.title_position or "auto",
                     title_y_percent=settings.title_y_percent,
+                    canvas_w=canvas_w,
+                    canvas_h=canvas_h,
                     title_font_size_preset=settings.title_font_size or settings.font_size or "medium",
                     streamer_preset=settings.streamer_preset or "none"
                 )
