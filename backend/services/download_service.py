@@ -18,11 +18,20 @@ from backend.config import (
     download_clip_segment,
     download_full_raw_video,
     is_valid_mp4,
+    is_within_media_dirs,
     logger,
 )
 
 raw_download_jobs: Dict[str, dict] = {}
 raw_clip_download_jobs: Dict[str, dict] = {}
+
+
+def prune_download_registries(max_entries: int = 50) -> None:
+    """Bounds the in-memory download job registries so a long-lived server cannot leak."""
+    while len(raw_download_jobs) > max_entries:
+        raw_download_jobs.pop(next(iter(raw_download_jobs)), None)
+    while len(raw_clip_download_jobs) > max_entries:
+        raw_clip_download_jobs.pop(next(iter(raw_clip_download_jobs)), None)
 
 
 async def run_raw_download_job(
@@ -46,7 +55,7 @@ async def run_raw_download_job(
         # Check if local video exists in UPLOADS_DIR / TEMP_DIR (e.g. Google Drive or Uploaded video)
         clean_vname = urllib.parse.unquote(os.path.basename(v_url.split("?")[0])).strip()
         local_src = None
-        if os.path.exists(v_url):
+        if is_within_media_dirs(v_url) and os.path.exists(v_url):
             local_src = os.path.abspath(v_url)
         elif (UPLOADS_DIR / clean_vname).exists():
             local_src = str(UPLOADS_DIR / clean_vname)
@@ -97,7 +106,7 @@ async def run_raw_clip_download_job(
         clean_title = f"clip_{int(start_time)}_{int(end_time)}"
     download_title = f"{clean_title} (raw)"
     safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', video_id or "clip")
-    seg_filename = f"{safe_id}_clip_{int(start_time)}_{int(end_time)}_{int(time.time())}_raw.mp4"
+    seg_filename = f"{safe_id}_clip_{int(start_time)}_{int(end_time)}_{job_id}_raw.mp4"
     out_path = EXPORTS_DIR / seg_filename
 
     try:

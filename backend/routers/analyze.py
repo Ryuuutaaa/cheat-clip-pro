@@ -5,7 +5,7 @@ import os
 import re
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from google import genai
 from google.genai import types
@@ -16,6 +16,7 @@ from backend.config import (
     UPLOADS_DIR,
     compute_audio_energy_heatmap,
     get_video_file_metadata,
+    is_within_media_dirs,
     logger,
     transcribe_local_video_file,
 )
@@ -31,6 +32,11 @@ from backend.services.ai_service import (
     KNOWN_FLASH_MODELS,
     get_flash_models_for_key,
     list_available_gemini_models,
+)
+from backend.services.ai_usage_service import (
+    get_ai_usage_summary,
+    record_ai_usage,
+    reset_ai_usage,
 )
 from backend.services.gdrive_service import (
     download_google_drive_video,
@@ -90,10 +96,23 @@ def supadata_usage_endpoint(refresh: bool = False):
     return get_supadata_usage_data(force=refresh)
 
 
+@router.get("/api/ai-usage")
+def ai_usage_endpoint():
+    """Returns aggregated Gemini AI usage (calls and tokens) for this server session."""
+    return get_ai_usage_summary()
+
+
+@router.post("/api/ai-usage/reset")
+def ai_usage_reset_endpoint():
+    """Clears the in-memory and persisted AI usage counters."""
+    reset_ai_usage()
+    return get_ai_usage_summary()
+
+
 @router.get("/api/models")
-def list_available_models(api_key: str = ""):
-    """Fetches list of available Gemini models using the user's API key, prioritizing Flash models (newest first)."""
-    models = list_available_gemini_models(api_key)
+def list_available_models(x_gemini_api_key: Optional[str] = Header(None, alias="X-Gemini-Api-Key")):
+    """Fetches available Gemini models using the caller's API key (sent via header, never query string)."""
+    models = list_available_gemini_models((x_gemini_api_key or "").strip())
     return {"models": models}
 
 
@@ -155,7 +174,7 @@ async def analyze_video(request: AnalyzeRequest):
             except Exception as e:
                 yield _sse({"error": f"Failed to fetch video from Google Drive: {str(e)}", "status": 400})
                 return
-        elif req_clean.startswith("upload_") or req_clean.startswith("/api/video/") or req_clean.startswith("file://") or os.path.exists(req_clean):
+        elif req_clean.startswith("upload_") or req_clean.startswith("/api/video/") or req_clean.startswith("file://") or (is_within_media_dirs(req_clean) and os.path.exists(req_clean)):
             is_uploaded = True
         elif (UPLOADS_DIR / os.path.basename(req_clean.split("?")[0])).exists():
             is_uploaded = True
@@ -166,7 +185,7 @@ async def analyze_video(request: AnalyzeRequest):
 
         if is_uploaded:
             if uploaded_file_path is None:
-                if os.path.exists(req_clean):
+                if is_within_media_dirs(req_clean) and os.path.exists(req_clean):
                     uploaded_file_path = Path(req_clean)
                 elif (UPLOADS_DIR / os.path.basename(req_clean.split("?")[0])).exists():
                     uploaded_file_path = UPLOADS_DIR / os.path.basename(req_clean.split("?")[0])
@@ -972,6 +991,16 @@ async def analyze_video(request: AnalyzeRequest):
                         response = resp_candidate
                         analysis_data = parsed_data
                         successful_model = model_name
+                        try:
+                            record_ai_usage(
+                                model_name,
+                                getattr(resp_candidate, "usage_metadata", None),
+                                ok=True,
+                                source=(request.url or "")[:200],
+                                clip_count=clips_found,
+                            )
+                        except Exception:
+                            pass
                         break
                     else:
                         last_error = Exception(f"{model_name} returned empty or unparseable response")
@@ -984,6 +1013,10 @@ async def analyze_video(request: AnalyzeRequest):
                     
                     if any(x in err_str for x in ('429', 'quota', 'resource exhausted', 'rate limit')):
                         encountered_quota_error = e
+                        try:
+                            record_ai_usage(model_name, ok=False, error=err_str, source=(request.url or "")[:200])
+                        except Exception:
+                            pass
                         break
 
                     if any(x in err_str for x in ('404', 'not found', 'not supported')):

@@ -247,9 +247,9 @@ async function start() {
     'uvicorn',
     'backend.main:app',
     '--host',
-    '0.0.0.0',
+    process.env.HOST || '127.0.0.1',
     '--port',
-    '8000',
+    process.env.PORT || '8000',
     '--reload',
     '--reload-dir',
     path.join(rootDir, 'backend')

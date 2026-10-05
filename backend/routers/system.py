@@ -1,11 +1,13 @@
+import hmac
 import logging
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from backend.config import _base_dir, logger
 from backend.services.system_service import (
@@ -20,7 +22,18 @@ from backend.services.system_service import (
 router = APIRouter(tags=["System"])
 
 
+def _origin_is_allowed(origin: str) -> bool:
+    """Allows same-machine origins (any localhost port) plus any explicitly configured origins."""
+    if not origin:
+        return True  # non-browser clients (curl, CLI) send no Origin
+    if re.match(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$", origin):
+        return True
+    allowed = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+    return origin in allowed
+
+
 def verify_admin_access(
+    request: Request,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None)
 ) -> bool:
@@ -28,7 +41,11 @@ def verify_admin_access(
     Verifies administrative authorization.
     If ADMIN_API_KEY or CHEAT_CLIP_API_KEY is configured in .env, requires matching token.
     If no secret key is set, allows open access for local desktop installation.
+    Cross-origin (CSRF) admin requests are always rejected.
     """
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin administrator request rejected")
+
     admin_key = (os.environ.get("ADMIN_API_KEY") or os.environ.get("CHEAT_CLIP_API_KEY") or "").strip()
     if not admin_key:
         return True
@@ -37,7 +54,7 @@ def verify_admin_access(
     if not provided and authorization and authorization.startswith("Bearer "):
         provided = authorization[7:].strip()
 
-    if provided != admin_key:
+    if not provided or not hmac.compare_digest(provided, admin_key):
         raise HTTPException(status_code=401, detail="Unauthorized: Invalid or missing administrator API key")
     return True
 

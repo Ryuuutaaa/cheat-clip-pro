@@ -45,7 +45,7 @@ export const HeatmapTimeline: React.FC<HeatmapTimelineProps> = ({
     
     return heatmap.map((point, index) => {
       // Position x based on time or index (index is safer for uniform distribution)
-      const x = (index / (heatmap.length - 1)) * svgWidth;
+      const x = heatmap.length > 1 ? (index / (heatmap.length - 1)) * svgWidth : 0;
       // Invert Y coordinate so 1.0 value is at top
       const y = paddingTop + chartHeight - (point.value * chartHeight);
       return { x, y, value: point.value, time: point.start_time };

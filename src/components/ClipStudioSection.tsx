@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
+import { buildTimedWords, buildWordChunks, getCaptionAt, CAPTION_HIGHLIGHT_CLASS } from '../utils/wordTiming';
 import type {
   ViralClip,
   RenderSettings,
@@ -18,6 +19,7 @@ import type {
   BatchRenderProgress,
   HardwareAccelOption,
   HardwareAccelInfo,
+  TranscriptLine,
 } from '../types';
 
 interface ClipStudioSectionProps {
@@ -33,6 +35,7 @@ interface ClipStudioSectionProps {
   batchProgress?: BatchRenderProgress | null;
   onDismissProgress?: () => void;
   onRetryClip?: (clipIndex?: number) => void;
+  transcript?: TranscriptLine[];
 }
 
 function getFriendlyErrorMessage(rawMsg: string): string {
@@ -61,6 +64,28 @@ function getFriendlyErrorMessage(rawMsg: string): string {
   }
   return rawMsg.length > 140 ? rawMsg.slice(0, 140) + '...' : rawMsg;
 }
+
+const getOverallPercent = (
+  clips: Array<{ status: string; progress_percent?: number }>,
+  total: number
+): number => {
+  if (!clips || clips.length === 0) return 0;
+  const sum = clips.reduce(
+    (acc, c) => acc + (c.status === 'completed' ? 100 : c.progress_percent || 0),
+    0
+  );
+  return Math.min(100, Math.round(sum / (total || 1)));
+};
+
+const revokeBlobUrl = (url: string): void => {
+  if (url && url.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      /* revoking an already-revoked URL is harmless */
+    }
+  }
+};
 
 const ClipRenderErrorBox: React.FC<{ errorMessage: string; t: any; onRetry?: () => void }> = ({ errorMessage, t, onRetry }) => {
   const [copied, setCopied] = useState(false);
@@ -181,6 +206,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   batchProgress,
   onDismissProgress,
   onRetryClip,
+  transcript,
 }) => {
   const { t } = useLanguage();
   // Directly reflect marked clips (supports selecting 0 clips)
@@ -283,6 +309,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [isLooping, setIsLooping] = useState<boolean>(true);
   const [playerReady, setPlayerReady] = useState<boolean>(false);
+
+  // Live word-level caption for the studio preview (mirrors the rendered .ass timing)
+  const timedWords = useMemo(() => buildTimedWords(transcript), [transcript]);
+  const wordChunks = useMemo(() => buildWordChunks(timedWords), [timedWords]);
+  const liveCaption = useMemo(
+    () => (captionStyle === 'none' ? null : getCaptionAt(wordChunks, currentTime)),
+    [wordChunks, currentTime, captionStyle]
+  );
 
   // Face & object detection tracking state
   const [faceBox, setFaceBox] = useState<{ cx: number; cy: number; w: number; h: number; found: boolean; type?: string }>({
@@ -821,7 +855,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     setIsUploadingWatermark(true);
     try {
       const localUrl = URL.createObjectURL(file);
-      setWatermarkImageUrl(localUrl);
+      setWatermarkImageUrl((prev) => { revokeBlobUrl(prev); return localUrl; });
       setWatermarkImageFileName(file.name);
 
       const formData = new FormData();
@@ -837,7 +871,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       const data = await res.json();
       setWatermarkImageFilePath(data.file_path);
       setWatermarkImageFileName(data.filename || file.name);
-      setWatermarkImageUrl(data.url || localUrl);
+      if (data.url) {
+        revokeBlobUrl(localUrl);
+        setWatermarkImageUrl(data.url);
+      } else {
+        setWatermarkImageUrl(localUrl);
+      }
       setWatermarkEnabled(true);
     } catch (err) {
       console.error('Watermark upload error:', err);
@@ -856,7 +895,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const handleRemoveWatermarkImage = () => {
     setWatermarkImageFileName('');
     setWatermarkImageFilePath('');
-    setWatermarkImageUrl('');
+    setWatermarkImageUrl((prev) => { revokeBlobUrl(prev); return ''; });
   };
 
   const getDefaultWatermarkConfig = (type: 'image' | 'text') => {
@@ -3267,6 +3306,28 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         )}
                       </div>
 
+                      {/* Live word-level subtitle overlay (real-time preview) */}
+                      {liveCaption && (
+                        <div className={`studio-live-caption mode-${subtitlePositionMode}`}>
+                          <span className="studio-live-caption-text" style={{ fontFamily: captionFont }}>
+                            {liveCaption.words.map((w, i) => (
+                              <React.Fragment key={i}>
+                                {i > 0 ? ' ' : ''}
+                                <span
+                                  className={
+                                    i === liveCaption.activeIndex
+                                      ? CAPTION_HIGHLIGHT_CLASS[captionStyle] || 'pop-yellow'
+                                      : undefined
+                                  }
+                                >
+                                  {applyLetterCase(w, textCase)}
+                                </span>
+                              </React.Fragment>
+                            ))}
+                          </span>
+                        </div>
+                      )}
+
                       {/* PIP Corner Box */}
                       {streamerPreset === 'pip_corner' && (
                         <div className="wireframe-pip-box" style={{ zIndex: 12 }}>
@@ -3469,7 +3530,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             {/* Hidden Audio element for background music preview */}
             <audio
               ref={bgmAudioRef}
-              src={bgmAudioUrl}
+              src={bgmAudioUrl || undefined}
               onEnded={() => setIsBgmPlaying(false)}
               onLoadedMetadata={handleBgmLoadedMetadata}
               style={{ display: 'none' }}
@@ -3478,7 +3539,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             {/* Hidden Audio element for hook sound effect preview */}
             <audio
               ref={hookSfxAudioRef}
-              src={hookSfxAudioUrl}
+              src={hookSfxAudioUrl || undefined}
               onEnded={() => setIsHookSfxPlaying(false)}
               style={{ display: 'none' }}
             />
@@ -3825,14 +3886,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         background: batchProgress.overall_status === 'error'
                           ? '#ef4444'
                           : 'linear-gradient(90deg, #ff5e3a, #ff2a5f)',
-                        width: `${Math.round((batchProgress.clips.filter(c => c.status === 'completed').length / (batchProgress.total_clips || 1)) * 100)}%`,
+                        width: `${getOverallPercent(batchProgress.clips, batchProgress.total_clips)}%`,
                         transition: 'width 0.3s ease'
                       }}
                     ></div>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                     <span>{t.batchProgress.completedMeta(batchProgress.clips.filter(c => c.status === 'completed').length, batchProgress.total_clips)}</span>
-                    <span>{Math.round((batchProgress.clips.filter(c => c.status === 'completed').length / (batchProgress.total_clips || 1)) * 100)}%</span>
+                    <span>{getOverallPercent(batchProgress.clips, batchProgress.total_clips)}%</span>
                   </div>
                 </div>
 

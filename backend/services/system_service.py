@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from backend.config import COOKIES_PATH, ROOT_COOKIES_PATH, TEMP_DIR, _base_dir, logger
+from backend.config import COOKIES_PATH, ROOT_COOKIES_PATH, TEMP_DIR, UPLOADS_DIR, _base_dir, logger
 
 
 def get_dir_size_and_count(dir_path) -> Tuple[int, int]:
@@ -63,6 +63,13 @@ def clear_temp_files() -> dict:
             pass
         return False
 
+    def is_protected_user_media(p: Path) -> bool:
+        """User-uploaded videos and the Google-Drive cache must never be auto-deleted."""
+        try:
+            return p.resolve() == UPLOADS_DIR.resolve()
+        except Exception:
+            return False
+
     target_dirs = [TEMP_DIR, base_dir / "temp"]
     for d in target_dirs:
         if d.exists() and d.is_dir():
@@ -70,6 +77,10 @@ def clear_temp_files() -> dict:
                 try:
                     if is_protected_cookie(item):
                         logger.info(f"Preserving protected cookie file: {item}")
+                        continue
+
+                    if is_protected_user_media(item):
+                        logger.info(f"Preserving user-uploaded media directory: {item}")
                         continue
 
                     if item.is_file() or item.is_symlink():
@@ -133,6 +144,11 @@ def cleanup_expired_temp_files(max_age_hours: int = 48) -> dict:
             continue
         for item in list(target.rglob("*")):
             if item.is_file() and item.name.lower() not in PROTECTED_COOKIE_NAMES:
+                try:
+                    if UPLOADS_DIR.resolve() in item.resolve().parents:
+                        continue
+                except Exception:
+                    pass
                 try:
                     mtime = item.stat().st_mtime
                     if mtime < cutoff_time:

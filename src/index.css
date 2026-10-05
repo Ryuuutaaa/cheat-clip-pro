@@ -2282,6 +2282,86 @@ label[for="manual-subtitle-file"]:hover {
   display: inline-block;
 }
 
+/* Word-level pop animation for the highlighted word in the studio preview */
+.wireframe-caption-text .pop-yellow,
+.wireframe-caption-text .pop-green,
+.wireframe-caption-text .pop-violet,
+.wireframe-caption-text .pop-red,
+.wireframe-caption-text .pop-cyan,
+.wireframe-caption-text .pop-gold {
+  display: inline-block;
+  transform-origin: center;
+  animation: wireframe-caption-pop 0.9s ease-in-out infinite;
+}
+
+@keyframes wireframe-caption-pop {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  35% { transform: scale(1.25) rotate(-2.5deg); }
+  60% { transform: scale(0.95) rotate(0deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wireframe-caption-text .pop-yellow,
+  .wireframe-caption-text .pop-green,
+  .wireframe-caption-text .pop-violet,
+  .wireframe-caption-text .pop-red,
+  .wireframe-caption-text .pop-cyan,
+  .wireframe-caption-text .pop-gold {
+    animation: none;
+  }
+}
+
+/* Live word-level caption overlay in the studio preview (real-time) */
+.studio-live-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 11%;
+  z-index: 20;
+  padding: 0 0.6rem;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.studio-live-caption.mode-center {
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.studio-live-caption-text {
+  display: inline-block;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  color: #ffffff;
+  text-shadow: 0 2px 6px #000, 0 0 12px rgba(0, 0, 0, 0.85);
+}
+
+.studio-live-caption-text .pop-yellow,
+.studio-live-caption-text .pop-green,
+.studio-live-caption-text .pop-violet,
+.studio-live-caption-text .pop-red,
+.studio-live-caption-text .pop-cyan,
+.studio-live-caption-text .pop-gold {
+  display: inline-block;
+  transform-origin: center;
+  animation: wireframe-caption-pop 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-live-caption-text .pop-yellow,
+  .studio-live-caption-text .pop-green,
+  .studio-live-caption-text .pop-violet,
+  .studio-live-caption-text .pop-red,
+  .studio-live-caption-text .pop-cyan,
+  .studio-live-caption-text .pop-gold {
+    animation: none;
+  }
+}
+
 .preview-tip {
   font-size: 0.72rem;
   color: var(--text-muted);

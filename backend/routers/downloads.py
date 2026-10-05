@@ -10,6 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from backend.config import EXPORTS_DIR, logger
 from backend.schemas.downloads import RawClipDownloadRequest, RawVideoDownloadRequest
 from backend.services.download_service import (
+    prune_download_registries,
     raw_clip_download_jobs,
     raw_download_jobs,
     run_raw_clip_download_job,
@@ -56,6 +57,7 @@ async def handle_download_raw_video(req: RawVideoDownloadRequest, background_tas
         "error": None
     }
 
+    prune_download_registries()
     background_tasks.add_task(run_raw_download_job, job_id, v_url, out_path, filename, download_title)
     return {"job_id": job_id, "status": "starting"}
 
@@ -98,6 +100,7 @@ async def handle_download_raw_clip(req: RawClipDownloadRequest, background_tasks
         "error": None
     }
 
+    prune_download_registries()
     background_tasks.add_task(
         run_raw_clip_download_job,
         job_id,

@@ -52,6 +52,7 @@ backend/temp/
 backend/temp_downloads/
 backend/temp_clips/
 backend/exports/
+backend/ai_usage.json
 *.ass
 *.mp4
 *.m4a
@@ -153,3 +154,6 @@ $RECYCLE.BIN/
 *.key
 *.p12
 *.pfx
+
+# ─── TOOLING / LOCAL STATE ───────────────────────────────────
+.commandcode/

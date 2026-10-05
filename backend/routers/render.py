@@ -27,6 +27,7 @@ from backend.services.render_service import (
     RENDER_BATCHES,
     process_batch_rendering,
     process_batch_retry,
+    prune_render_registry,
 )
 
 router = APIRouter(tags=["Render"])
@@ -63,6 +64,7 @@ async def start_batch_render(request: RenderBatchRequest, background_tasks: Back
         "zip_url": None
     }
     BATCH_REQUESTS[batch_id] = request
+    prune_render_registry()
 
     background_tasks.add_task(process_batch_rendering, batch_id, request)
     return {"batch_id": batch_id, "total_clips": len(request.clips)}

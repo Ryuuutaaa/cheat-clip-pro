@@ -3,6 +3,7 @@ import { HeatmapTimeline } from './components/HeatmapTimeline';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { ClipStudioSection } from './components/ClipStudioSection';
 import { CookiesModal } from './components/CookiesModal';
+import { AiUsageModal } from './components/AiUsageModal';
 import { ClipTrimmerModal } from './components/ClipTrimmerModal';
 import { AppUpdateModal } from './components/AppUpdateModal';
 import { resilientFetch } from './utils/api';
@@ -44,6 +45,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('cheat_clip_gemini_api_key') || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isCookiesModalOpen, setIsCookiesModalOpen] = useState(false);
+  const [isAiUsageModalOpen, setIsAiUsageModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [hasCookies, setHasCookies] = useState(false);
   const [isDownloadingRaw, setIsDownloadingRaw] = useState(false);
@@ -222,10 +224,15 @@ export default function App() {
   const [batchProgress, setBatchProgress] = useState<BatchRenderProgress | null>(null);
   const [isLaunchingRender, setIsLaunchingRender] = useState(false);
   const batchEventSourceRef = useRef<EventSource | null>(null);
+  const batchReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Close SSE connection on unmount
   useEffect(() => {
     return () => {
+      if (batchReconnectRef.current) {
+        clearTimeout(batchReconnectRef.current);
+        batchReconnectRef.current = null;
+      }
       if (batchEventSourceRef.current) {
         batchEventSourceRef.current.close();
         batchEventSourceRef.current = null;
@@ -234,35 +241,56 @@ export default function App() {
   }, []);
 
   const listenToBatchProgress = useCallback((batchId: string) => {
+    if (batchReconnectRef.current) {
+      clearTimeout(batchReconnectRef.current);
+      batchReconnectRef.current = null;
+    }
     if (batchEventSourceRef.current) {
       batchEventSourceRef.current.close();
       batchEventSourceRef.current = null;
     }
-    const eventSource = new EventSource(`/api/render-progress/${batchId}`);
-    batchEventSourceRef.current = eventSource;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const progressData: BatchRenderProgress = JSON.parse(event.data);
-        setBatchProgress(progressData);
-        if (progressData.overall_status === 'completed' || progressData.overall_status === 'error') {
-          eventSource.close();
-          if (batchEventSourceRef.current === eventSource) {
-            batchEventSourceRef.current = null;
+    let retries = 0;
+
+    const connect = () => {
+      const eventSource = new EventSource(`/api/render-progress/${batchId}`);
+      batchEventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        retries = 0;
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const progressData: BatchRenderProgress = JSON.parse(event.data);
+          setBatchProgress(progressData);
+          if (progressData.overall_status === 'completed' || progressData.overall_status === 'error') {
+            eventSource.close();
+            if (batchEventSourceRef.current === eventSource) {
+              batchEventSourceRef.current = null;
+            }
           }
+        } catch (err) {
+          console.error('Failed to parse progress SSE:', err);
         }
-      } catch (err) {
-        console.error('Failed to parse progress SSE:', err);
-      }
+      };
+
+      eventSource.onerror = () => {
+        // Reconnect ourselves with capped backoff until a terminal state is reached.
+        eventSource.close();
+        if (batchEventSourceRef.current === eventSource) {
+          batchEventSourceRef.current = null;
+        }
+        retries += 1;
+        if (retries <= 10) {
+          batchReconnectRef.current = setTimeout(connect, Math.min(5000, 500 * retries));
+        } else {
+          console.error('SSE connection error: giving up after 10 retries');
+        }
+      };
     };
 
-    eventSource.onerror = (err) => {
-      console.error('SSE connection error:', err);
-      eventSource.close();
-      if (batchEventSourceRef.current === eventSource) {
-        batchEventSourceRef.current = null;
-      }
-    };
+    connect();
   }, []);
 
   const markedClipsList = useMemo(() => {
@@ -272,13 +300,17 @@ export default function App() {
 
   const handleStartBatchRender = async (settings: RenderSettings) => {
     if (!result) return;
+    const isYouTubeSource = !result.video_url && !(result.video_id || '').startsWith('gdrive_') && !(result.video_id || '').startsWith('upload_');
+    if (isYouTubeSource && !hasCookies) {
+      if (!window.confirm(t.studio.noCookiesRenderConfirm)) return;
+    }
     setIsLaunchingRender(true);
     try {
       const resp = await fetch('/api/render-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          video_url: url || `https://www.youtube.com/watch?v=${result.video_id}`,
+          video_url: result.video_url || (url.trim() ? url.trim() : (result.video_id?.startsWith('gdrive_') || result.video_id?.startsWith('upload_') ? `/api/video/${result.video_id}` : `https://www.youtube.com/watch?v=${result.video_id}`)),
           video_id: result.video_id,
           clips: settings.selectedClips,
           settings: {
@@ -371,6 +403,7 @@ export default function App() {
   const handleRetryBatchClip = async (clipIndex?: number) => {
     if (!batchProgress?.batch_id) return;
     const batchId = batchProgress.batch_id;
+    const prevOverallStatus = batchProgress.overall_status;
     try {
       // Optimistically update the UI to show 'pending' / retrying state for selected clip(s)
       setBatchProgress(prev => {
@@ -406,6 +439,7 @@ export default function App() {
       listenToBatchProgress(batchId);
     } catch (err: any) {
       alert(err.message || 'Error retrying clip rendering');
+      setBatchProgress(prev => (prev ? { ...prev, overall_status: prevOverallStatus } : prev));
     }
   };
 
@@ -549,7 +583,8 @@ export default function App() {
       }
       setLoadingModels(true);
       try {
-        const res = await resilientFetch(`/api/models?api_key=${encodeURIComponent(cleanKey)}`, {
+        const res = await resilientFetch(`/api/models`, {
+          headers: { 'X-Gemini-Api-Key': cleanKey },
           maxRetries: 3,
           retryDelay: 800,
           silent: true
@@ -1960,8 +1995,8 @@ Transcript:
     if (!result?.clips) return [];
     return result.clips.filter(clip => {
       const matchesSearch = searchQuery.trim() === '' ||
-        clip.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        clip.transcript.toLowerCase().includes(searchQuery.toLowerCase());
+        (clip.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (clip.transcript || '').toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesVirality = viralityFilter === 'all' ||
         (viralityFilter === 'high' && clip.virality_score >= 90) ||
@@ -2030,9 +2065,15 @@ Transcript:
   }, [activeClip]);
 
   // Find current subtitle line with slight gap tolerance to prevent jitter
-  const currentSubtitle = result?.transcript?.find(
-    line => currentTime >= (line.start - 0.05) && currentTime <= (line.end + 0.25)
-  );
+  const currentSubtitle = useMemo(() => {
+    const lines = result?.transcript;
+    if (!lines || lines.length === 0) return undefined;
+    // Prefer the line that truly contains the playhead; fall back to a small tolerance window.
+    return (
+      lines.find(line => currentTime >= line.start && currentTime <= line.end) ||
+      lines.find(line => currentTime >= line.start - 0.05 && currentTime <= line.end + 0.25)
+    );
+  }, [result?.transcript, currentTime]);
 
   return (
     <div className="app-container">
@@ -2097,6 +2138,28 @@ Transcript:
             <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
               {hasCookies ? t.header.cookiesStatusActive : t.header.cookiesStatusSetup}
             </span>
+          </button>
+          <button
+            type="button"
+            className="cookie-header-btn"
+            onClick={() => setIsAiUsageModalOpen(true)}
+            style={{
+              padding: '0.45rem 0.85rem',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+            title={t.aiUsage.tooltip}
+          >
+            <span>📊 {t.aiUsage.btn}</span>
           </button>
           <button
             type="button"
@@ -3703,7 +3766,7 @@ Transcript:
                     <div id="youtube-player"></div>
                   </div>
                 )}
-                {subtitlesSource === 'manual' && currentSubtitle && (
+                {currentSubtitle && (
                   <div className="video-subtitle-overlay">
                     <span>{currentSubtitle.text}</span>
                   </div>
@@ -4507,6 +4570,7 @@ Transcript:
         <ClipStudioSection
           videoUrl={result.video_url || url}
           videoId={result.video_id}
+          transcript={result.transcript}
           allClips={result.clips}
           markedClips={markedClipsList}
           activeClip={activeClip}
@@ -4531,6 +4595,11 @@ Transcript:
         isOpen={isCookiesModalOpen}
         onClose={() => setIsCookiesModalOpen(false)}
         onCookieStatusChange={setHasCookies}
+      />
+
+      <AiUsageModal
+        isOpen={isAiUsageModalOpen}
+        onClose={() => setIsAiUsageModalOpen(false)}
       />
 
       {/* App Update & Restart Modal */}

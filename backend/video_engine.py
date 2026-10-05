@@ -6,6 +6,7 @@ import time
 import shutil
 import logging
 import subprocess
+import threading
 import unicodedata
 import math
 import urllib.parse
@@ -95,6 +96,112 @@ def ensure_ffmpeg_in_path():
 
 ensure_ffmpeg_in_path()
 
+
+def kill_process_tree(proc: subprocess.Popen) -> None:
+    """Force-kills a process together with all of its descendants (e.g. ffmpeg spawned by yt-dlp)."""
+    import signal
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+            )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def run_managed(cmd, timeout, capture_output=True, text=True, **kwargs):
+    """
+    Runs a command in its own process group and, on timeout, terminates the WHOLE
+    process tree — a plain subprocess.run(timeout=...) only kills the direct child,
+    leaving ffmpeg grandchildren of yt-dlp orphaned and writing to disk.
+
+    Returns a subprocess.CompletedProcess, mirroring subprocess.run's result.
+    """
+    is_windows = os.name == "nt"
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE if capture_output else None,
+        stderr=subprocess.PIPE if capture_output else None,
+        text=text,
+        start_new_session=(not is_windows),
+        creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if is_windows else 0),
+        **kwargs,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+    except subprocess.TimeoutExpired:
+        kill_process_tree(proc)
+        try:
+            proc.communicate(timeout=10)
+        except Exception:
+            pass
+        raise
+
+
+def is_within_media_dirs(path_like: str) -> bool:
+    """
+    True only if `path_like` resolves inside the app's own media directories
+    (UPLOADS_DIR / TEMP_DIR / EXPORTS_DIR). Blocks arbitrary local-file reads
+    such as '/api/video/../../etc/passwd'.
+    """
+    if not path_like:
+        return False
+    try:
+        candidate = Path(urllib.parse.unquote(str(path_like).split("?")[0])).resolve()
+    except Exception:
+        return False
+    for root in (UPLOADS_DIR.resolve(), TEMP_DIR.resolve(), EXPORTS_DIR.resolve()):
+        try:
+            if candidate == root or candidate.is_relative_to(root):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def is_safe_download_url(url: str) -> bool:
+    """
+    SSRF guard for remote downloads: rejects loopback / private / link-local /
+    reserved / cloud-metadata hosts.
+    """
+    try:
+        from backend.utils.text import is_safe_remote_url
+        return is_safe_remote_url(url)
+    except Exception:
+        return False
+
+
+# Enforce a minimum gap between successive remote (YouTube/yt-dlp) downloads to
+# reduce rate-limit / bot-detection / IP-block risk. Configurable via env
+# YTDLP_MIN_INTERVAL_SEC (default 3s; set 0 to disable).
+_REMOTE_DOWNLOAD_LOCK = threading.Lock()
+_LAST_REMOTE_DOWNLOAD_TS = 0.0
+
+
+def _throttle_remote_download() -> None:
+    global _LAST_REMOTE_DOWNLOAD_TS
+    try:
+        min_interval = float(os.environ.get("YTDLP_MIN_INTERVAL_SEC", "3"))
+    except ValueError:
+        min_interval = 3.0
+    if min_interval <= 0:
+        return
+    with _REMOTE_DOWNLOAD_LOCK:
+        now = time.monotonic()
+        wait = min_interval - (now - _LAST_REMOTE_DOWNLOAD_TS)
+        if wait > 0:
+            logger.info(f"Throttling remote download: waiting {wait:.1f}s to avoid YouTube rate-limit/bot detection.")
+            time.sleep(wait)
+        _LAST_REMOTE_DOWNLOAD_TS = time.monotonic()
+
+
 # Global lazy-loaded whisper model
 _WHISPER_MODEL = None
 
@@ -104,8 +211,9 @@ def get_whisper_model():
     if _WHISPER_MODEL is None:
         try:
             import whisper
-            logger.info("Loading Whisper 'base' model for word-level timestamps...")
-            _WHISPER_MODEL = whisper.load_model("base")
+            model_name = (os.environ.get("WHISPER_MODEL") or "base").strip() or "base"
+            logger.info(f"Loading Whisper '{model_name}' model for word-level timestamps...")
+            _WHISPER_MODEL = whisper.load_model(model_name)
         except Exception as e:
             logger.warning(f"Could not load Whisper model: {e}")
             _WHISPER_MODEL = False
@@ -324,6 +432,30 @@ def is_valid_mp4(file_path: Union[str, Path]) -> bool:
     return False
 
 
+def has_video_stream(file_path: Union[str, Path]) -> bool:
+    """
+    True only if the container actually contains a video stream.
+    Guards against audio-only / voice-only downloads that would otherwise pass
+    is_valid_mp4 (which only checks duration) and then crash ffmpeg with
+    "Stream specifier ':v' ... matches no streams".
+    """
+    p = Path(file_path)
+    if not p.exists():
+        return False
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0",
+            str(p)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        return res.returncode == 0 and "video" in (res.stdout or "").lower()
+    except Exception:
+        return False
+
+
 def get_video_file_metadata(file_path: Union[str, Path]) -> Dict[str, Any]:
     """
     Extracts duration, dimensions, FPS, and stream metadata for a local video file.
@@ -532,9 +664,9 @@ def download_clip_segment(
     clean_base = os.path.basename(clean_raw.split("?")[0])
     local_source = None
 
-    if os.path.exists(clean_raw):
+    if is_within_media_dirs(clean_raw) and os.path.exists(clean_raw):
         local_source = Path(clean_raw)
-    elif os.path.exists(video_url):
+    elif is_within_media_dirs(video_url) and os.path.exists(video_url):
         local_source = Path(video_url)
     elif clean_raw.startswith("/api/video/"):
         candidate = UPLOADS_DIR / clean_base
@@ -586,8 +718,8 @@ def download_clip_segment(
             "-movflags", "+faststart",
             str(output_path)
         ]
-        res = subprocess.run(slice_cmd, capture_output=True, text=True, timeout=90)
-        if output_path.exists() and is_valid_mp4(output_path):
+        res = run_managed(slice_cmd, 90)
+        if output_path.exists() and is_valid_mp4(output_path) and has_video_stream(output_path):
             return str(output_path)
         if output_path.exists():
             try:
@@ -604,6 +736,10 @@ def download_clip_segment(
     clean_url = video_url.strip()
     if not clean_url.startswith("http"):
         clean_url = f"https://www.youtube.com/watch?v={clean_url}"
+    if clean_url.startswith("http") and not is_safe_download_url(clean_url):
+        raise RuntimeError("Refused to download from an unsafe or private URL.")
+
+    _throttle_remote_download()
 
     clip_duration = max(1.0, end_time - start_time)
     t_start_fmt = format_section_time(start_time)
@@ -640,8 +776,8 @@ def download_clip_segment(
             clean_url
         ]
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
-            if res.returncode == 0 and is_valid_mp4(output_path):
+            res = run_managed(cmd, timeout_sec)
+            if res.returncode == 0 and is_valid_mp4(output_path) and has_video_stream(output_path):
                 logger.info(f"Successfully downloaded section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                 return str(output_path)
             # If not valid or returncode != 0, clean up any incomplete/corrupt partial file immediately
@@ -683,7 +819,7 @@ def download_clip_segment(
                 "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
                 clean_url
             ]
-            url_res = subprocess.run(url_cmd, capture_output=True, text=True, timeout=30)
+            url_res = run_managed(url_cmd, 30)
             if url_res.returncode == 0 and url_res.stdout.strip():
                 urls = url_res.stdout.strip().split("\n")
                 video_stream = urls[0]
@@ -709,8 +845,8 @@ def download_clip_segment(
                     "-movflags", "+faststart",
                     str(output_path)
                 ]
-                trim_res = subprocess.run(trim_cmd, capture_output=True, text=True, timeout=trim_timeout)
-                if trim_res.returncode == 0 and is_valid_mp4(output_path):
+                trim_res = run_managed(trim_cmd, trim_timeout)
+                if trim_res.returncode == 0 and is_valid_mp4(output_path) and has_video_stream(output_path):
                     logger.info(f"Successfully trimmed stream URLs with FFmpeg ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                     return str(output_path)
                 else:
@@ -752,8 +888,8 @@ def download_clip_segment(
                 clean_url
             ]
             timeout_720p = min(120, max(50, int(clip_duration * 2) + 30))
-            res_720p = subprocess.run(cmd_720p, capture_output=True, text=True, timeout=timeout_720p)
-            if res_720p.returncode == 0 and is_valid_mp4(output_path):
+            res_720p = run_managed(cmd_720p, timeout_720p)
+            if res_720p.returncode == 0 and is_valid_mp4(output_path) and has_video_stream(output_path):
                 logger.info(f"Successfully downloaded 720p fallback section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                 return str(output_path)
             if output_path.exists():
@@ -795,8 +931,8 @@ def download_clip_segment(
                 clean_url
             ]
             timeout_480p = min(90, max(40, int(clip_duration * 2) + 20))
-            res_480p = subprocess.run(cmd_480p, capture_output=True, text=True, timeout=timeout_480p)
-            if res_480p.returncode == 0 and is_valid_mp4(output_path):
+            res_480p = run_managed(cmd_480p, timeout_480p)
+            if res_480p.returncode == 0 and is_valid_mp4(output_path) and has_video_stream(output_path):
                 logger.info(f"Successfully downloaded 480p fallback section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                 return str(output_path)
             if output_path.exists():
@@ -861,6 +997,10 @@ def download_full_raw_video(video_url: str, output_path: str, progress_callback=
     clean_url = video_url.strip()
     if not clean_url.startswith("http"):
         clean_url = f"https://www.youtube.com/watch?v={clean_url}"
+    if not is_safe_download_url(clean_url):
+        raise RuntimeError("Refused to download from an unsafe or private URL.")
+
+    _throttle_remote_download()
 
     has_cookies = get_effective_cookies_path() is not None
     attempts = [True, False] if has_cookies else [False]
@@ -876,57 +1016,85 @@ def download_full_raw_video(video_url: str, output_path: str, progress_callback=
             "--merge-output-format", "mp4",
             "--newline",
             "--progress-template", "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
+            "--socket-timeout", "20",
+            "--retries", "5",
+            "--fragment-retries", "5",
             clean_url
         ]
         logger.info(f"Downloading full raw video ({mode_label}) from {clean_url} to {output_path}...")
 
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        for line in iter(process.stdout.readline, ''):
-            raw_line = line.strip()
-            if not raw_line:
-                continue
-            clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_line).strip()
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            errors="replace",
+            start_new_session=(os.name != "nt"),
+            creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0),
+        )
+        try:
+            for line in iter(process.stdout.readline, ''):
+                raw_line = line.strip()
+                if not raw_line:
+                    continue
+                clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_line).strip()
 
-            if clean_line.startswith("download:") and progress_callback:
-                raw_data = clean_line[len("download:"):].strip()
-                parts = raw_data.split("|")
-                if len(parts) >= 5:
-                    pct_str, dl_str, tot_str, spd_str, eta_str = parts[0], parts[1], parts[2], parts[3], parts[4]
-                    try:
-                        clean_pct = re.sub(r'[^0-9.]', '', pct_str)
-                        pct_val = float(clean_pct) if clean_pct else 0.0
-                    except Exception:
-                        pct_val = 0.0
-                    progress_callback({
-                        "percent": pct_val,
-                        "downloaded": dl_str.strip() if dl_str and dl_str != "NA" else f"{pct_val:.1f}%",
-                        "total": tot_str.strip() if tot_str and tot_str != "NA" else "",
-                        "speed": spd_str.strip() if spd_str and spd_str != "NA" else "",
-                        "eta": eta_str.strip() if eta_str and eta_str != "NA" else ""
-                    })
-            elif "[download]" in clean_line and progress_callback:
-                match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*%', clean_line)
-                if match:
-                    try:
-                        pct_val = float(match.group(1))
-                    except Exception:
-                        pct_val = 0.0
-                    spd_match = re.search(r'at\s+([0-9.]+\s*[a-zA-Z]+/s)', clean_line)
-                    eta_match = re.search(r'ETA\s+([0-9:]+)', clean_line)
-                    tot_match = re.search(r'of\s+~?([0-9.]+\s*[a-zA-Z]+)', clean_line)
-                    progress_callback({
-                        "percent": pct_val,
-                        "downloaded": f"{pct_val:.1f}%",
-                        "total": tot_match.group(1) if tot_match else "",
-                        "speed": spd_match.group(1) if spd_match else "",
-                        "eta": eta_match.group(1) if eta_match else ""
-                    })
-        process.stdout.close()
-        returncode = process.wait()
+                if clean_line.startswith("download:") and progress_callback:
+                    raw_data = clean_line[len("download:"):].strip()
+                    parts = raw_data.split("|")
+                    if len(parts) >= 5:
+                        pct_str, dl_str, tot_str, spd_str, eta_str = parts[0], parts[1], parts[2], parts[3], parts[4]
+                        try:
+                            clean_pct = re.sub(r'[^0-9.]', '', pct_str)
+                            pct_val = float(clean_pct) if clean_pct else 0.0
+                        except Exception:
+                            pct_val = 0.0
+                        progress_callback({
+                            "percent": pct_val,
+                            "downloaded": dl_str.strip() if dl_str and dl_str != "NA" else f"{pct_val:.1f}%",
+                            "total": tot_str.strip() if tot_str and tot_str != "NA" else "",
+                            "speed": spd_str.strip() if spd_str and spd_str != "NA" else "",
+                            "eta": eta_str.strip() if eta_str and eta_str != "NA" else ""
+                        })
+                elif "[download]" in clean_line and progress_callback:
+                    match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*%', clean_line)
+                    if match:
+                        try:
+                            pct_val = float(match.group(1))
+                        except Exception:
+                            pct_val = 0.0
+                        spd_match = re.search(r'at\s+([0-9.]+\s*[a-zA-Z]+/s)', clean_line)
+                        eta_match = re.search(r'ETA\s+([0-9:]+)', clean_line)
+                        tot_match = re.search(r'of\s+~?([0-9.]+\s*[a-zA-Z]+)', clean_line)
+                        progress_callback({
+                            "percent": pct_val,
+                            "downloaded": f"{pct_val:.1f}%",
+                            "total": tot_match.group(1) if tot_match else "",
+                            "speed": spd_match.group(1) if spd_match else "",
+                            "eta": eta_match.group(1) if eta_match else ""
+                        })
+            returncode = process.wait()
+        except BaseException:
+            # Cancellation / interruption: kill yt-dlp AND its ffmpeg children.
+            kill_process_tree(process)
+            raise
+        finally:
+            try:
+                process.stdout.close()
+            except Exception:
+                pass
 
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+        if returncode == 0 and os.path.exists(output_path) and is_valid_mp4(output_path) and has_video_stream(output_path):
             logger.info(f"Full raw video downloaded successfully ({mode_label}, {os.path.getsize(output_path)} bytes)")
             return str(output_path)
+
+        # Invalid/incomplete output: remove it before any guest-mode retry.
+        if os.path.exists(output_path):
+            try:
+                output_path.unlink()
+            except Exception:
+                pass
 
         if use_cookies:
             logger.warning(f"Full raw video download with cookies exited with code {returncode}. Retrying in guest mode...")
@@ -1033,7 +1201,15 @@ def transcribe_clip_words(
     if whisper_model is not None:
         try:
             logger.info("Running Whisper word-level transcription as fallback...")
-            result = whisper_model.transcribe(video_path, word_timestamps=True, fp16=False)
+            transcribe_kwargs: Dict[str, Any] = {
+                "word_timestamps": True,
+                "fp16": False,
+                "condition_on_previous_text": False,
+            }
+            forced_language = (os.environ.get("WHISPER_LANGUAGE") or "").strip()
+            if forced_language:
+                transcribe_kwargs["language"] = forced_language
+            result = whisper_model.transcribe(video_path, **transcribe_kwargs)
             words = []
             for segment in result.get("segments", []):
                 for w in segment.get("words", []):
@@ -2556,8 +2732,9 @@ def check_has_audio(video_path: str) -> bool:
         ]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
         return bool(res.stdout and res.stdout.strip())
-    except Exception:
-        return True
+    except Exception as e:
+        logger.warning(f"Audio stream probe failed for {video_path}: {e}. Assuming no audio stream.")
+        return False
 
 
 def render_clip_to_mp4(
@@ -2610,6 +2787,13 @@ def render_clip_to_mp4(
         raise RuntimeError(
             "Source video segment is incomplete or corrupted ('moov atom not found'). "
             "This usually happens when internet lags during download. Please retry rendering this clip."
+        )
+
+    if not has_video_stream(video_path):
+        raise RuntimeError(
+            "Downloaded source segment has no video stream (audio-only). YouTube most likely "
+            "restricted the video format — this commonly happens without cookies. Please save your "
+            "YouTube cookies (🍪 button) and retry."
         )
 
     is_streamer = streamer_preset in ["pip_corner", "split_top_cam"]
@@ -2857,9 +3041,9 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0) ->
     clean_vurl = urllib.parse.unquote(video_url.strip()) if video_url else ""
     clean_vbase = os.path.basename(clean_vurl.split("?")[0]) if clean_vurl else ""
 
-    if clean_vurl and os.path.exists(clean_vurl):
+    if clean_vurl and is_within_media_dirs(clean_vurl) and os.path.exists(clean_vurl):
         local_source = Path(clean_vurl)
-    elif video_url and os.path.exists(video_url):
+    elif video_url and is_within_media_dirs(video_url) and os.path.exists(video_url):
         local_source = Path(video_url)
     elif clean_vurl and clean_vurl.startswith("/api/video/") and (UPLOADS_DIR / clean_vbase).exists():
         local_source = UPLOADS_DIR / clean_vbase

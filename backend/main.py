@@ -15,6 +15,7 @@ from backend.routers import (
     render_router,
     system_router,
 )
+
 # Re-exports for backwards compatibility
 from backend.schemas.analyze import (
     AnalyzeRequest,
@@ -48,13 +49,15 @@ from backend.services.render_service import (
 app = FastAPI(
     title="CHEAT CLIP PRO API",
     description="High-performance backend API for Cheat Clip Pro auto-clipper and video studio",
-    version="2.0.0"
+    version="2.0.0",
 )
 
 # CORS configuration supporting configurable ALLOWED_ORIGINS and local development
 allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
 if allowed_origins_env:
-    allow_origins = [orig.strip() for orig in allowed_origins_env.split(",") if orig.strip()]
+    allow_origins = [
+        orig.strip() for orig in allowed_origins_env.split(",") if orig.strip()
+    ]
 else:
     allow_origins = [
         "http://localhost:5173",
@@ -69,7 +72,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
     allow_origin_regex=r"^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$",
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -97,6 +100,7 @@ logger.info("Cheat Clip PRO backend routers mounted successfully.")
 
 if __name__ == "__main__":
     import uvicorn
+
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8000"))
     uvicorn.run("backend.main:app", host=host, port=port, reload=True)

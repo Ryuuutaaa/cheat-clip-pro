@@ -9,6 +9,18 @@ interface BatchRenderProgressModalProps {
   onRetryClip?: (clipIndex?: number) => void;
 }
 
+const getOverallPercent = (
+  clips: Array<{ status: string; progress_percent?: number }>,
+  total: number
+): number => {
+  if (!clips || clips.length === 0) return 0;
+  const sum = clips.reduce(
+    (acc, c) => acc + (c.status === 'completed' ? 100 : c.progress_percent || 0),
+    0
+  );
+  return Math.min(100, Math.round(sum / (total || 1)));
+};
+
 export const BatchRenderProgressModal: React.FC<BatchRenderProgressModalProps> = ({
   isOpen,
   onClose,
@@ -21,7 +33,7 @@ export const BatchRenderProgressModal: React.FC<BatchRenderProgressModalProps> =
   const isAllDone = progress.overall_status === 'completed' || progress.overall_status === 'error';
   const isProcessing = progress.overall_status === 'running';
   const completedCount = progress.clips.filter(c => c.status === 'completed').length;
-  const overallPercent = Math.round((completedCount / (progress.total_clips || 1)) * 100);
+  const overallPercent = getOverallPercent(progress.clips, progress.total_clips);
 
   return (
     <div className="modal-backdrop">

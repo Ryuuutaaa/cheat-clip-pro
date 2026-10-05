@@ -5,6 +5,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    fs: {
+      // Never serve secrets from the dev server root (cookies hold live YouTube sessions)
+      deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', 'cookies.txt', '**/cookies.txt', '**/*cookies*.txt'],
+    },
     watch: {
       ignored: ['**/dist_app/**', '**/dist_installer/**', '**/build/**', '**/venv/**']
     },

@@ -12,6 +12,7 @@ from backend.config import (
     generate_ass_file,
     has_emoji,
     is_valid_mp4,
+    is_within_media_dirs,
     logger,
     render_clip_to_mp4,
     render_title_overlay_png,
@@ -208,6 +209,15 @@ async def render_single_batch_clip(
         clip_status["download_url"] = f"/api/download-rendered/{out_filename}"
         clip_status["output_path"] = out_path
 
+        # Final MP4 is safe on disk; drop intermediate artifacts so disk usage
+        # does not double per clip.
+        for _tmp in (raw_path, ass_path, title_overlay_path):
+            if _tmp and os.path.exists(_tmp):
+                try:
+                    os.remove(_tmp)
+                except Exception:
+                    pass
+
     except Exception as e:
         logger.error(f"Error rendering clip {idx} in batch {batch_id}: {e}")
         clip_status["status"] = "error"
@@ -279,6 +289,26 @@ def update_batch_summary_and_zip(batch_id: str, settings: RenderSettingsModel):
         batch["warning_message"] = None
 
 
+def sanitize_settings_media_paths(settings: RenderSettingsModel) -> None:
+    """Drops client-supplied media paths that are not inside the app's media dirs."""
+    for attr in ("bgm_file_path", "hook_sfx_file_path", "watermark_file_path"):
+        val = getattr(settings, attr, None)
+        if val and not is_within_media_dirs(val):
+            logger.warning(f"Ignoring unsafe media path for {attr}: {val}")
+            try:
+                setattr(settings, attr, None)
+            except Exception:
+                pass
+
+
+def prune_render_registry(max_entries: int = 50) -> None:
+    """Bounds the in-memory batch registries so a long-lived server cannot leak."""
+    while len(RENDER_BATCHES) > max_entries:
+        oldest = next(iter(RENDER_BATCHES))
+        RENDER_BATCHES.pop(oldest, None)
+        BATCH_REQUESTS.pop(oldest, None)
+
+
 async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
     batch = RENDER_BATCHES.get(batch_id)
     if not batch:
@@ -286,6 +316,7 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
 
     clips = request.clips
     settings = request.settings
+    sanitize_settings_media_paths(settings)
 
     # Normalize video URL for history or direct URL
     target_url = (request.video_url or "").strip()
@@ -329,6 +360,7 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
     batch["overall_status"] = "running"
     clips = request.clips
     settings = request.settings
+    sanitize_settings_media_paths(settings)
     target_url = (request.video_url or "").strip()
     if not target_url:
         if request.video_id and (request.video_id.startswith("gdrive_") or request.video_id.startswith("upload_")):
