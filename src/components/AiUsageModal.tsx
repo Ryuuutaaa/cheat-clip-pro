@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
+import { useModalDismiss } from '../utils/useModalDismiss';
 
 interface AiUsageModalProps {
   isOpen: boolean;
@@ -46,6 +47,8 @@ export const AiUsageModal: React.FC<AiUsageModalProps> = ({ isOpen, onClose }) =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useModalDismiss(isOpen, onClose);
+
   const load = async () => {
     setLoading(true);
     setError(null);
@@ -85,7 +88,7 @@ export const AiUsageModal: React.FC<AiUsageModalProps> = ({ isOpen, onClose }) =
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="cookies-modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className="cookies-modal-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t.aiUsage.modalTitle}>
         <div className="studio-modal-header">
           <div className="studio-header-title">
             <div className="studio-icon-badge">📊</div>
@@ -96,7 +99,7 @@ export const AiUsageModal: React.FC<AiUsageModalProps> = ({ isOpen, onClose }) =
               <p className="studio-header-desc">{t.aiUsage.modalDesc}</p>
             </div>
           </div>
-          <button className="studio-close-btn" onClick={onClose}>
+          <button className="studio-close-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
@@ -160,7 +163,7 @@ export const AiUsageModal: React.FC<AiUsageModalProps> = ({ isOpen, onClose }) =
           <button className="studio-btn-cancel" onClick={onClose}>
             {t.aiUsage.closeBtn}
           </button>
-          <button className="studio-btn-render glowing-btn" onClick={load} disabled={loading}>
+          <button className="btn-quiet" onClick={load} disabled={loading}>
             {t.aiUsage.refreshBtn}
           </button>
         </div>

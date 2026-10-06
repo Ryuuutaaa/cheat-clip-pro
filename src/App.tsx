@@ -2252,15 +2252,8 @@ Transcript:
             href="https://tako.id/johansa"
             target="_blank"
             rel="noopener noreferrer"
-            className="glowing-btn"
-            style={{
-              padding: '0.5rem 1rem',
-              fontSize: '0.8rem',
-              borderRadius: '8px',
-              textDecoration: 'none',
-              boxShadow: '0 4px 12px rgba(255, 94, 58, 0.2)',
-              background: 'linear-gradient(135deg, var(--secondary) 0%, #f43f5e 100%)'
-            }}
+            className="btn-quiet"
+            title="Support the project"
           >
             🐈‍⬛ {t.header.supportProject}
           </a>
@@ -2377,7 +2370,7 @@ Transcript:
           {sourceMode === 'youtube' && (
             <div className="form-main-input-row">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t.form.urlLabel}</label>
+                <label htmlFor="youtube-url-input" style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t.form.urlLabel}</label>
                 <input
                   id="youtube-url-input"
                   type="text"
@@ -3463,18 +3456,9 @@ Transcript:
                   <div style={{ marginTop: '0.85rem', display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'center' }}>
                     <button
                       type="button"
-                      className="glowing-btn"
+                      className="btn-quiet"
                       onClick={() => handleAnalyze()}
                       disabled={loading}
-                      style={{
-                        padding: '0.45rem 1.15rem',
-                        fontSize: '0.85rem',
-                        borderRadius: '8px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.45rem',
-                        cursor: 'pointer'
-                      }}
                     >
                       <span className={loading ? "spinner-icon" : ""}>🔄</span>
                       {t.errors.tryAgain || "Try Again"}
@@ -3841,25 +3825,11 @@ Transcript:
 
                 <button
                   type="button"
-                  className="form-input glowing-btn"
+                  className="btn-quiet"
                   onClick={handleDownloadRawVideo}
                   disabled={isDownloadingRaw}
                   title="Download full original YouTube video at highest 1080p resolution"
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.4rem',
-                    fontSize: '0.8rem',
-                    padding: '0.5rem 1rem',
-                    borderRadius: '8px',
-                    cursor: isDownloadingRaw ? 'not-allowed' : 'pointer',
-                    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(37, 99, 235, 0.45) 100%)',
-                    border: '1px solid rgba(59, 130, 246, 0.5)',
-                    color: '#ffffff',
-                    fontWeight: 600
-                  }}
+                  style={{ flex: 1 }}
                 >
                   {isDownloadingRaw ? (
                     <>

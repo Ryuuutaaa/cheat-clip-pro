@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
+import { useModalDismiss } from '../utils/useModalDismiss';
 
 interface CookiesModalProps {
   isOpen: boolean;
@@ -21,6 +22,8 @@ export const CookiesModal: React.FC<CookiesModalProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+
+  useModalDismiss(isOpen, onClose);
 
   const fetchStatus = async () => {
     try {
@@ -140,7 +143,7 @@ export const CookiesModal: React.FC<CookiesModalProps> = ({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="cookies-modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className="cookies-modal-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={t.cookies.modalTitle}>
         {/* Header */}
         <div className="studio-modal-header">
           <div className="studio-header-title">
@@ -157,7 +160,7 @@ export const CookiesModal: React.FC<CookiesModalProps> = ({
               </p>
             </div>
           </div>
-          <button className="studio-close-btn" onClick={onClose}>
+          <button className="studio-close-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>

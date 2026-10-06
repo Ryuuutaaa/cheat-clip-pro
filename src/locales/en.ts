@@ -506,6 +506,8 @@ export const en = {
     selectClipWarning: "⚠️ Select at least 1 clip to render",
     batchRenderCta: (count: number) => `🚀 Batch Render ${count} Clip${count > 1 ? 's' : ''}`,
     noCookiesRenderConfirm: "⚠️ No YouTube cookies detected.\n\nDownloading clips without cookies frequently triggers YouTube bot verification / IP blocks (especially on Indonesian networks) and can fail or stall.\n\nIt is strongly recommended to add cookies (🍪 button) first.\n\nContinue anyway?",
+    advancedShow: "⚙️ Show advanced settings",
+    advancedHide: "⚙️ Hide advanced settings",
     rawAudioTitle: "🎙️ Original Clip Voice Audio Boost",
     rawAudioVolumeLabel: "🎙️ Voice Audio Volume Boost:",
     rawAudioVolumeHint: "💡 Boost the original speaker volume (up to 200%) to ensure dialogue clarity over background music.",

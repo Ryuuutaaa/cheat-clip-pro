@@ -508,6 +508,8 @@ export const id: Translations = {
     selectClipWarning: "⚠️ Pilih setidaknya 1 klip untuk dirender",
     batchRenderCta: (count: number) => `🚀 Render Batch ${count} Klip`,
     noCookiesRenderConfirm: "⚠️ Cookie YouTube belum terpasang.\n\nMengunduh klip tanpa cookie sering memicu verifikasi bot / blokir IP YouTube (terutama di jaringan Indonesia) dan bisa gagal atau macet.\n\nSangat disarankan memasang cookie (tombol 🍪) terlebih dahulu.\n\nLanjutkan saja?",
+    advancedShow: "⚙️ Tampilkan pengaturan lanjutan",
+    advancedHide: "⚙️ Sembunyikan pengaturan lanjutan",
     rawAudioTitle: "🎙️ Boost Volume Audio Asli Klip",
     rawAudioVolumeLabel: "🎙️ Boost Volume Suara Asli:",
     rawAudioVolumeHint: "💡 Tingkatkan volume vokal pembicara asli klip (hingga 200%) agar suara tetap terdengar jelas di atas musik latar.",

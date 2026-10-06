@@ -309,6 +309,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const [isLooping, setIsLooping] = useState<boolean>(true);
   const [playerReady, setPlayerReady] = useState<boolean>(false);
+  // Rarely-used cards (watermark, SFX, encoder, file naming, …) stay hidden until requested
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
   // Live word-level caption for the studio preview (mirrors the rendered .ass timing)
   const timedWords = useMemo(() => buildTimedWords(transcript), [transcript]);
@@ -1329,7 +1331,15 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       {/* Main Studio Grid: Controls (Left) + Real Image Live Preview (Right) */}
       <div className="studio-workspace-grid">
         {/* Left Column: Interactive Controls */}
-        <div className="studio-controls-pane">
+        <div className={`studio-controls-pane${showAdvanced ? ' studio-show-advanced' : ''}`}>
+          <button
+            type="button"
+            className="btn-quiet studio-advanced-toggle"
+            onClick={() => setShowAdvanced(v => !v)}
+            aria-expanded={showAdvanced}
+          >
+            {showAdvanced ? t.studio.advancedHide : t.studio.advancedShow}
+          </button>
           {/* 1. Canvas & Inner Aspect Ratio */}
           <div className="studio-card-group">
             <div className="group-header">
@@ -2356,7 +2366,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 6. Hook Sound Effect (SFX) */}
-          <div className="studio-card-group">
+          <div className="studio-card-group studio-card-advanced">
             <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <span className="group-title">{t.studio.hookSfxTitle}</span>
@@ -2484,7 +2494,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 7. Original Clip Voice Audio Boost */}
-          <div className="studio-card-group">
+          <div className="studio-card-group studio-card-advanced">
             <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <span className="group-title">{t.studio.rawAudioTitle}</span>
@@ -2534,7 +2544,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 8. Video Watermark Branding */}
-          <div className="studio-card-group">
+          <div className="studio-card-group studio-card-advanced">
             <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <span className="group-title">{t.studio.watermarkTitle}</span>
@@ -2819,7 +2829,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 8. Hardware Acceleration & Video Encoder */}
-          <div className="studio-card-group">
+          <div className="studio-card-group studio-card-advanced">
             <div className="group-header">
               <span className="group-title">⚡ {t.studio.hwTitle}</span>
               <span className="group-badge">{t.studio.hwBadge}</span>
@@ -2912,7 +2922,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* Video File Name Option */}
-          <div className="studio-card-group">
+          <div className="studio-card-group studio-card-advanced">
             <div className="group-header">
               <span className="group-title">{t.studio.fileNameTitle}</span>
               <span className="group-badge">{t.studio.fileNameBadge}</span>
@@ -2961,7 +2971,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* Batch Clip Hook / Title Customizer for All Selected Clips */}
-          <div className="studio-card-group">
+          <div className="studio-card-group studio-card-advanced">
             <div className="group-header">
               <span className="group-title">{t.studio.batchClipTitlesTitle}</span>
               <span className="group-badge">
@@ -3798,22 +3808,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       <a
                         href={batchProgress.zip_url || `/api/download-batch-zip/${batchProgress.batch_id}`}
                         download={`cheat_clip_pro_${batchProgress.batch_id}.zip`}
-                        className="glowing-btn batch-zip-download-btn"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.35rem',
-                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                          border: '1px solid rgba(16, 185, 129, 0.6)',
-                          color: '#ffffff',
-                          fontWeight: 700,
-                          fontSize: '0.72rem',
-                          padding: '0.3rem 0.65rem',
-                          borderRadius: '6px',
-                          textDecoration: 'none',
-                          boxShadow: '0 0 12px rgba(16, 185, 129, 0.35)',
-                          cursor: 'pointer',
-                        }}
+                        className="btn-quiet batch-zip-download-btn"
                       >
                         📦 ZIP
                       </a>
