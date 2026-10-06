@@ -1,6 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Backend port is configurable so the app can run alongside other services
+// (e.g. a Laravel/php dev server that already occupies 8000).
+// Set BACKEND_PORT in your shell (run.sh does this automatically).
+const BACKEND_PORT = process.env.BACKEND_PORT || '8000'
+const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -14,7 +20,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: BACKEND_URL,
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('error', (_err, _req, res: any) => {
@@ -29,15 +35,15 @@ export default defineConfig({
         }
       },
       '/docs': {
-        target: 'http://127.0.0.1:8000',
+        target: BACKEND_URL,
         changeOrigin: true,
       },
       '/redoc': {
-        target: 'http://127.0.0.1:8000',
+        target: BACKEND_URL,
         changeOrigin: true,
       },
       '/openapi.json': {
-        target: 'http://127.0.0.1:8000',
+        target: BACKEND_URL,
         changeOrigin: true,
       },
     }

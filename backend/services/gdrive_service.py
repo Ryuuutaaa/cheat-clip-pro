@@ -8,7 +8,7 @@ from typing import Callable, Optional
 import requests
 import yt_dlp
 
-from backend.config import TEMP_DIR, UPLOADS_DIR, get_video_file_metadata, is_valid_mp4, logger
+from backend.config import TEMP_DIR, UPLOADS_DIR, get_video_file_metadata, has_video_stream, is_valid_mp4, logger
 
 
 def is_google_drive_url(url: str) -> bool:
@@ -62,7 +62,9 @@ def download_google_drive_video(
     # 1. Cache check: Has this Google Drive file already been downloaded?
     existing = list(UPLOADS_DIR.glob(f"gdrive_{file_id}*.*"))
     for f in existing:
-        if f.exists() and f.stat().st_size > 1024 * 1024:
+        if ".part" in f.name.lower() or re.search(r"\.f\d+\.", f.name):
+            continue
+        if f.exists() and f.stat().st_size > 1024 * 1024 and is_valid_mp4(f) and has_video_stream(f):
             logger.info(f"Using cached Google Drive video: {f.name} ({f.stat().st_size} bytes)")
             if on_progress:
                 on_progress("Video Found in Cache", f"Using cached Google Drive video: {f.name}", 100)
@@ -105,7 +107,9 @@ def download_google_drive_video(
 
         candidates = list(UPLOADS_DIR.glob(f"*gdrive_{file_id}*.*")) + [f for f in UPLOADS_DIR.iterdir() if file_id in f.name]
         for c in candidates:
-            if c.exists() and c.stat().st_size > 1024 * 1024:
+            if ".part" in c.name.lower() or re.search(r"\.f\d+\.", c.name):
+                continue
+            if c.exists() and c.stat().st_size > 1024 * 1024 and is_valid_mp4(c) and has_video_stream(c):
                 # Fix double .mp4.mp4 extension if present
                 if c.name.endswith(".mp4.mp4"):
                     fixed_name = c.name[:-4]
@@ -183,7 +187,7 @@ def download_google_drive_video(
                         mb_down = downloaded / (1024 * 1024)
                         on_progress("Downloading Video", f"Downloading: {mb_down:.1f} MB...", 45)
 
-        if out_path.exists() and out_path.stat().st_size > 500 * 1024:
+        if out_path.exists() and out_path.stat().st_size > 500 * 1024 and is_valid_mp4(out_path) and has_video_stream(out_path):
             logger.info(f"Direct HTTP download completed for Google Drive video: {out_path.name} ({out_path.stat().st_size} bytes)")
             if on_progress:
                 on_progress("Download Complete", f"Google Drive video ready: {out_path.name}", 100)

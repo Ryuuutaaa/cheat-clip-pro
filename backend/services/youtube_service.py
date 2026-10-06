@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, List, Optional
@@ -233,6 +234,10 @@ def fetch_video_metadata(url: str, custom_proxy: Optional[str] = None):
 
 
 _supadata_key_index = 0
+_SUPADATA_ROTATION_LOCK = threading.Lock()
+# Keys that recently returned 429/402 — skipped until this TTL expires.
+_SUPADATA_EXHAUSTED: dict = {}
+_SUPADATA_EXHAUSTED_TTL_SEC = 3600.0
 
 def get_supadata_keys() -> List[str]:
     """Retrieves list of Supadata API keys from environment variables."""
@@ -258,9 +263,15 @@ def fetch_transcript_supadata(video_id: str, error_collector: Optional[List[str]
             error_collector.append("Supadata API: No keys configured (SUPADATA_API_KEYS is empty in .env)")
         return []
 
-    start_idx = _supadata_key_index % len(keys)
-    rotated_keys = keys[start_idx:] + keys[:start_idx]
-    _supadata_key_index = (_supadata_key_index + 1) % len(keys)
+    with _SUPADATA_ROTATION_LOCK:
+        start_idx = _supadata_key_index % len(keys)
+        _supadata_key_index = (_supadata_key_index + 1) % len(keys)
+
+    ordered_keys = keys[start_idx:] + keys[:start_idx]
+    now = time.time()
+    # Prefer keys that are not known to be quota-exhausted (circuit breaker).
+    fresh_keys = [k for k in ordered_keys if _SUPADATA_EXHAUSTED.get(k, 0.0) <= now]
+    rotated_keys = fresh_keys if fresh_keys else ordered_keys
 
     quota_exhausted_count = 0
     not_found = False
@@ -293,6 +304,7 @@ def fetch_transcript_supadata(video_id: str, error_collector: Optional[List[str]
                         return result
             elif response.status_code in (429, 402):
                 quota_exhausted_count += 1
+                _SUPADATA_EXHAUSTED[key] = time.time() + _SUPADATA_EXHAUSTED_TTL_SEC
                 logger.warning(f"Supadata key {masked_key} returned status {response.status_code} (quota/limit). Rotating to next key...")
                 continue
             elif response.status_code == 404:

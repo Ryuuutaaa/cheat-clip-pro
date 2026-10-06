@@ -334,6 +334,44 @@ def get_yt_dlp_cookies_args() -> List[str]:
     return []
 
 
+_COOKIES_COPY_LOCK = threading.Lock()
+_COOKIES_COPY_STATE: Dict[str, Any] = {"src": None, "mtime": None, "size": None, "path": None}
+
+
+def _get_ytdlp_cookies_copy(src: Path) -> Optional[Path]:
+    """
+    Returns a private copy of the cookie file for yt-dlp to use.
+    yt-dlp rewrites its cookie file on exit; pointing it at a private copy means the
+    canonical cookies.txt (the user's source of truth) is never clobbered or truncated.
+    The copy is refreshed whenever the canonical file changes.
+    """
+    try:
+        st = src.stat()
+    except Exception:
+        return src
+
+    with _COOKIES_COPY_LOCK:
+        state = _COOKIES_COPY_STATE
+        if (
+            state["path"]
+            and state["src"] == str(src)
+            and state["mtime"] == st.st_mtime
+            and state["size"] == st.st_size
+            and Path(state["path"]).exists()
+        ):
+            return Path(state["path"])
+        try:
+            copy_path = TEMP_DIR / "ytdlp_cookies.txt"
+            tmp = copy_path.with_name(copy_path.name + ".tmp")
+            shutil.copyfile(str(src), str(tmp))
+            os.replace(tmp, copy_path)
+            state.update({"src": str(src), "mtime": st.st_mtime, "size": st.st_size, "path": str(copy_path)})
+            return copy_path
+        except Exception as e:
+            logger.warning(f"Could not prepare a cookie copy; using the original file: {e}")
+            return src
+
+
 def get_yt_dlp_base_cmd(include_cookies: bool = True) -> List[str]:
     """
     Returns base command for yt-dlp with JavaScript runtime, player extractor args, and cookies.
@@ -368,8 +406,10 @@ def get_yt_dlp_base_cmd(include_cookies: bool = True) -> List[str]:
     if include_cookies:
         eff = get_effective_cookies_path()
         if eff:
-            logger.info(f"Using YouTube cookies from: {eff}")
-            cmd.extend(["--cookies", str(eff)])
+            run_copy = _get_ytdlp_cookies_copy(eff)
+            if run_copy:
+                logger.info(f"Using YouTube cookies from: {run_copy if run_copy != eff else eff}")
+                cmd.extend(["--cookies", str(run_copy)])
     return cmd
 
 
@@ -978,7 +1018,7 @@ def download_full_raw_video(video_url: str, output_path: str, progress_callback=
     or copies the local uploaded / Google Drive video file directly.
     """
     local_source = None
-    if os.path.exists(video_url):
+    if is_within_media_dirs(video_url) and os.path.exists(video_url):
         local_source = Path(video_url)
     elif video_url.startswith("/api/video/"):
         candidate = UPLOADS_DIR / os.path.basename(video_url.split("?")[0])
@@ -1092,7 +1132,7 @@ def download_full_raw_video(video_url: str, output_path: str, progress_callback=
         # Invalid/incomplete output: remove it before any guest-mode retry.
         if os.path.exists(output_path):
             try:
-                output_path.unlink()
+                os.unlink(output_path)
             except Exception:
                 pass
 
@@ -2720,8 +2760,9 @@ def build_ffmpeg_filtergraph(
     return full_filter_str, current_v
 
 
-def check_has_audio(video_path: str) -> bool:
-    """Checks if the video file contains a readable audio stream."""
+def check_has_audio(video_path: str) -> Optional[bool]:
+    """Checks if the video file contains a readable audio stream.
+    Returns None when the probe itself failed (caller should assume audio present)."""
     try:
         cmd = [
             "ffprobe", "-v", "error",
@@ -2733,8 +2774,8 @@ def check_has_audio(video_path: str) -> bool:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
         return bool(res.stdout and res.stdout.strip())
     except Exception as e:
-        logger.warning(f"Audio stream probe failed for {video_path}: {e}. Assuming no audio stream.")
-        return False
+        logger.warning(f"Audio stream probe failed for {video_path}: {e}. Assuming audio is present.")
+        return None
 
 
 def render_clip_to_mp4(
@@ -2888,6 +2929,10 @@ def render_clip_to_mp4(
     # 2. Audio Processing (Original Audio with Boost, BGM with start offset, and Hook SFX at frame 0)
     audio_inputs_to_mix = []
     has_orig_audio = check_has_audio(video_path)
+    if has_orig_audio is None:
+        # Probe failed (missing ffprobe, timeout, transient error) — assume audio exists.
+        # The optional "0:a:0?" map below tolerates a genuinely absent stream.
+        has_orig_audio = True
     if has_orig_audio:
         orig_vol = max(0.0, min(2.0, float(original_audio_volume)))
         if abs(orig_vol - 1.0) > 0.01:
@@ -3019,6 +3064,22 @@ def render_clip_to_mp4(
     return str(output_mp4_path)
 
 
+def _prune_frame_cache(frames_dir: Path, max_files: int = 300) -> None:
+    """Keeps the extracted-frame cache bounded by deleting the oldest entries."""
+    try:
+        files = [f for f in frames_dir.glob("*.jpg") if f.is_file()]
+        if len(files) <= max_files:
+            return
+        files.sort(key=lambda f: f.stat().st_mtime)
+        for old in files[: len(files) - max_files]:
+            try:
+                old.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0) -> Optional[str]:
     """
     Extracts a single JPEG image frame at timestamp for the real video preview.
@@ -3035,6 +3096,9 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0) ->
 
     if frame_path.exists() and frame_path.stat().st_size > 2000:
         return str(frame_path)
+
+    # Cache miss → a new frame will be written; bound the cache size first.
+    _prune_frame_cache(frames_dir)
 
     # 0. Check if this is an uploaded or gdrive local video in UPLOADS_DIR or specified by video_url
     local_source = None
@@ -3095,6 +3159,8 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0) ->
     # 2. Extract a tiny 1-second slice of format 18 (fast 360p mp4) using yt-dlp + ffmpeg
     try:
         clean_url = video_url.strip() if video_url else f"https://www.youtube.com/watch?v={video_id}"
+        if clean_url.startswith("http") and not is_safe_download_url(clean_url):
+            raise RuntimeError("Refused to extract a frame from an unsafe or private URL.")
         base_cmd = get_yt_dlp_base_cmd()
         temp_slice = frames_dir / f"slice_{safe_id}_{sec}.mp4"
 
@@ -3111,7 +3177,7 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0) ->
             "--no-warnings",
             clean_url
         ]
-        subprocess.run(slice_cmd, capture_output=True, text=True, timeout=20)
+        run_managed(slice_cmd, 20)
         if temp_slice.exists() and temp_slice.stat().st_size > 1000:
             ff_cmd = [
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -3146,10 +3212,13 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0) ->
         ]:
             try:
                 req = urllib.request.Request(thumb_url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=3) as resp, open(frame_path, "wb") as f_out:
+                # Store the thumbnail under a distinct name so it is never mistaken
+                # for (or permanently cached as) the real extracted frame.
+                thumb_path = frames_dir / f"thumb_{safe_id}.jpg"
+                with urllib.request.urlopen(req, timeout=3) as resp, open(thumb_path, "wb") as f_out:
                     f_out.write(resp.read())
-                if frame_path.exists() and frame_path.stat().st_size > 2000:
-                    return str(frame_path)
+                if thumb_path.exists() and thumb_path.stat().st_size > 2000:
+                    return str(thumb_path)
             except Exception:
                 continue
     except Exception as e:

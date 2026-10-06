@@ -249,7 +249,7 @@ async function start() {
     '--host',
     process.env.HOST || '127.0.0.1',
     '--port',
-    process.env.PORT || '8000',
+    process.env.PORT || process.env.BACKEND_PORT || '8000',
     '--reload',
     '--reload-dir',
     path.join(rootDir, 'backend')

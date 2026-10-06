@@ -50,6 +50,9 @@ async def run_raw_download_job(
             raw_download_jobs[job_id]["eta"] = p.get("eta", "")
 
     try:
+        if job_id not in raw_download_jobs:
+            logger.warning(f"Raw download job {job_id} was pruned before starting; aborting.")
+            return
         raw_download_jobs[job_id]["status"] = "downloading"
 
         # Check if local video exists in UPLOADS_DIR / TEMP_DIR (e.g. Google Drive or Uploaded video)
@@ -74,23 +77,29 @@ async def run_raw_download_job(
         if local_src and os.path.exists(local_src):
             logger.info(f"Serving local/gdrive video {local_src} directly as full download {out_path}")
             shutil.copy2(local_src, out_path)
-            raw_download_jobs[job_id]["status"] = "ready"
-            raw_download_jobs[job_id]["progress_percent"] = 100.0
-            dl_name = download_title or filename
-            raw_download_jobs[job_id]["download_url"] = f"/api/download-rendered/{filename}?title={quote(dl_name)}"
-            raw_download_jobs[job_id]["filename"] = f"{dl_name}.mp4" if not dl_name.endswith(".mp4") else dl_name
+            job = raw_download_jobs.get(job_id)
+            if job is not None:
+                job["status"] = "ready"
+                job["progress_percent"] = 100.0
+                dl_name = download_title or filename
+                job["download_url"] = f"/api/download-rendered/{filename}?title={quote(dl_name)}"
+                job["filename"] = f"{dl_name}.mp4" if not dl_name.endswith(".mp4") else dl_name
             return
 
         await asyncio.to_thread(download_full_raw_video, v_url, out_path, on_progress)
-        raw_download_jobs[job_id]["status"] = "ready"
-        raw_download_jobs[job_id]["progress_percent"] = 100.0
-        dl_name = download_title or filename
-        raw_download_jobs[job_id]["download_url"] = f"/api/download-rendered/{filename}?title={quote(dl_name)}"
-        raw_download_jobs[job_id]["filename"] = f"{dl_name}.mp4" if not dl_name.endswith(".mp4") else dl_name
+        job = raw_download_jobs.get(job_id)
+        if job is not None:
+            job["status"] = "ready"
+            job["progress_percent"] = 100.0
+            dl_name = download_title or filename
+            job["download_url"] = f"/api/download-rendered/{filename}?title={quote(dl_name)}"
+            job["filename"] = f"{dl_name}.mp4" if not dl_name.endswith(".mp4") else dl_name
     except Exception as e:
         logger.error(f"Raw video download job {job_id} failed: {e}")
-        raw_download_jobs[job_id]["status"] = "failed"
-        raw_download_jobs[job_id]["error"] = str(e)
+        job = raw_download_jobs.get(job_id)
+        if job is not None:
+            job["status"] = "failed"
+            job["error"] = str(e)
 
 
 async def run_raw_clip_download_job(
@@ -110,6 +119,9 @@ async def run_raw_clip_download_job(
     out_path = EXPORTS_DIR / seg_filename
 
     try:
+        if job_id not in raw_clip_download_jobs:
+            logger.warning(f"Raw clip download job {job_id} was pruned before starting; aborting.")
+            return
         raw_clip_download_jobs[job_id]["status"] = "downloading"
         raw_clip_download_jobs[job_id]["progress_percent"] = 25.0
 
@@ -225,15 +237,19 @@ async def run_raw_clip_download_job(
                         success = True
 
         if success and out_path.exists() and is_valid_mp4(out_path):
-            raw_clip_download_jobs[job_id]["status"] = "ready"
-            raw_clip_download_jobs[job_id]["progress_percent"] = 100.0
-            raw_clip_download_jobs[job_id]["download_url"] = f"/api/download-rendered/{seg_filename}?title={quote(download_title)}"
-            raw_clip_download_jobs[job_id]["filename"] = f"{download_title}.mp4"
+            job = raw_clip_download_jobs.get(job_id)
+            if job is not None:
+                job["status"] = "ready"
+                job["progress_percent"] = 100.0
+                job["download_url"] = f"/api/download-rendered/{seg_filename}?title={quote(download_title)}"
+                job["filename"] = f"{download_title}.mp4"
             logger.info(f"Raw clip '{download_title}' ready at {out_path}")
         else:
             raise RuntimeError("Generated clip file is missing or invalid.")
 
     except Exception as e:
         logger.error(f"Raw clip download job {job_id} failed: {e}")
-        raw_clip_download_jobs[job_id]["status"] = "failed"
-        raw_clip_download_jobs[job_id]["error"] = str(e)
+        job = raw_clip_download_jobs.get(job_id)
+        if job is not None:
+            job["status"] = "failed"
+            job["error"] = str(e)

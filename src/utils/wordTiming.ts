@@ -84,4 +84,5 @@ export const CAPTION_HIGHLIGHT_CLASS: Record<string, string> = {
   fire_red: 'pop-red',
   electric_cyan: 'pop-cyan',
   golden_aura: 'pop-gold',
+  clean_minimal: 'pop-minimal',
 };

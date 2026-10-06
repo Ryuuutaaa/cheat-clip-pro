@@ -31,13 +31,29 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const pollTimerRef = useRef<number | null>(null);
+  const startDelayRef = useRef<number | null>(null);
+  const reloadTimerRef = useRef<number | null>(null);
+  const pollGenRef = useRef<number>(0);
 
-  // Clear polling timer on unmount
+  const clearAllTimers = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    if (startDelayRef.current) {
+      clearTimeout(startDelayRef.current);
+      startDelayRef.current = null;
+    }
+    if (reloadTimerRef.current) {
+      clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = null;
+    }
+  };
+
+  // Clear all polling timers on unmount
   useEffect(() => {
     return () => {
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-      }
+      clearAllTimers();
     };
   }, []);
 
@@ -83,10 +99,8 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose 
       setIsUpdating(false);
       setIsRestarting(false);
       setReconnectAttempt(0);
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
+      pollGenRef.current += 1; // invalidate any in-flight polling chain
+      clearAllTimers();
     }
   }, [isOpen]);
 
@@ -94,21 +108,29 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose 
     setIsRestarting(true);
     setStatusText(t.updateModal.reconnecting);
     let attempts = 0;
+    const gen = ++pollGenRef.current;
 
     // Wait 3.5 seconds before starting polling so the old processes have time to shut down
-    setTimeout(() => {
-      pollTimerRef.current = setInterval(async () => {
+    startDelayRef.current = window.setTimeout(() => {
+      startDelayRef.current = null;
+      if (gen !== pollGenRef.current) return; // modal closed / superseded
+
+      pollTimerRef.current = window.setInterval(async () => {
+        if (gen !== pollGenRef.current) return;
         attempts += 1;
         setReconnectAttempt(attempts);
         try {
           const res = await fetch('/api/health?refresh=true', { cache: 'no-store' });
+          if (gen !== pollGenRef.current) return;
           if (res.ok) {
             if (pollTimerRef.current) {
               clearInterval(pollTimerRef.current);
               pollTimerRef.current = null;
             }
             setStatusText(t.updateModal.reconnected);
-            setTimeout(() => {
+            reloadTimerRef.current = window.setTimeout(() => {
+              reloadTimerRef.current = null;
+              if (gen !== pollGenRef.current) return;
               window.location.reload();
             }, 800);
           }

@@ -5,7 +5,7 @@ import os
 import re
 from typing import List, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from google import genai
 from google.genai import types
@@ -117,7 +117,7 @@ def list_available_models(x_gemini_api_key: Optional[str] = Header(None, alias="
 
 
 @router.post("/api/analyze")
-async def analyze_video(request: AnalyzeRequest):
+async def analyze_video(request: AnalyzeRequest, http_request: Request):
     """Stream real-time progress via Server-Sent Events, then deliver the final result."""
 
     async def stream():
@@ -594,8 +594,10 @@ async def analyze_video(request: AnalyzeRequest):
                 yield _sse({"error": f"No subtitles found in the specified range {start_bound}s to {end_bound}s.", "status": 400})
                 return
             
-            duration = end_bound - start_bound
-            logger.info(f"Filtered transcript to custom range: {start_bound}s to {end_bound}s (duration: {duration}s)")
+            # NOTE: keep `duration` as the FULL video length — clip times, heatmap
+            # points and the player timeline are all absolute. Only the transcript
+            # is filtered to this window.
+            logger.info(f"Filtered transcript to custom range: {start_bound}s to {end_bound}s")
 
         # Enrich transcript with heatmap engagement scores
         enriched_transcript = []
@@ -1250,8 +1252,67 @@ async def analyze_video(request: AnalyzeRequest):
 
         yield _sse({"done": True, "result": final_result.model_dump()})
 
+    disconnected = asyncio.Event()
+
+    async def _watch_client_disconnect():
+        """Polls for http.disconnect so an abandoned analysis stops burning CPU/quota.
+
+        The 1s sleep after every non-disconnect message means we can never busy-spin,
+        even on servers/middleware that replay body messages instead of blocking.
+        """
+        try:
+            for _ in range(3600 * 12):  # bounded: ~12h at 1 poll/sec
+                message = await http_request.receive()
+                if message.get("type") == "http.disconnect":
+                    disconnected.set()
+                    return
+                await asyncio.sleep(1.0)
+        except Exception:
+            disconnected.set()
+
+    watcher_task = asyncio.create_task(_watch_client_disconnect())
+
+    async def guarded_stream():
+        """Streams analysis events; emits errors as SSE and stops on client disconnect."""
+        try:
+            iterator = stream().__aiter__()
+            while True:
+                next_task = asyncio.ensure_future(iterator.__anext__())
+                disc_task = asyncio.ensure_future(disconnected.wait())
+                done, _pending = await asyncio.wait(
+                    {next_task, disc_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+
+                if disc_task in done and disconnected.is_set():
+                    next_task.cancel()
+                    try:
+                        await next_task
+                    except BaseException:
+                        pass
+                    logger.info("Client disconnected — aborting analysis pipeline.")
+                    break
+
+                disc_task.cancel()
+                try:
+                    chunk = next_task.result()
+                except StopAsyncIteration:
+                    break
+                yield chunk
+        except Exception as e:
+            logger.error(f"Analysis stream aborted: {e}")
+            try:
+                yield _sse({"error": f"Unexpected server error during analysis: {e}", "status": 500})
+            except Exception:
+                pass
+        finally:
+            watcher_task.cancel()
+            try:
+                await watcher_task
+            except BaseException:
+                pass
+
     return StreamingResponse(
-        stream(),
+        guarded_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

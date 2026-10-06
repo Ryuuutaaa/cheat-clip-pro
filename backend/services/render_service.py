@@ -302,11 +302,17 @@ def sanitize_settings_media_paths(settings: RenderSettingsModel) -> None:
 
 
 def prune_render_registry(max_entries: int = 50) -> None:
-    """Bounds the in-memory batch registries so a long-lived server cannot leak."""
-    while len(RENDER_BATCHES) > max_entries:
-        oldest = next(iter(RENDER_BATCHES))
+    """Bounds the in-memory batch registries without ever evicting a running batch."""
+    terminal_ids = [
+        bid for bid, batch in RENDER_BATCHES.items()
+        if batch.get("overall_status") in ("completed", "error")
+    ]
+    overflow = len(RENDER_BATCHES) - max_entries
+    while overflow > 0 and terminal_ids:
+        oldest = terminal_ids.pop(0)  # insertion order == oldest first
         RENDER_BATCHES.pop(oldest, None)
         BATCH_REQUESTS.pop(oldest, None)
+        overflow -= 1
 
 
 async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):

@@ -2345,10 +2345,16 @@ label[for="manual-subtitle-file"]:hover {
 .studio-live-caption-text .pop-violet,
 .studio-live-caption-text .pop-red,
 .studio-live-caption-text .pop-cyan,
-.studio-live-caption-text .pop-gold {
+.studio-live-caption-text .pop-gold,
+.studio-live-caption-text .pop-minimal {
   display: inline-block;
   transform-origin: center;
   animation: wireframe-caption-pop 0.9s ease-in-out infinite;
+}
+
+.studio-live-caption-text .pop-minimal {
+  color: #e0e0e0;
+  text-shadow: 0 0 8px rgba(224, 224, 224, 0.5);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2357,7 +2363,8 @@ label[for="manual-subtitle-file"]:hover {
   .studio-live-caption-text .pop-violet,
   .studio-live-caption-text .pop-red,
   .studio-live-caption-text .pop-cyan,
-  .studio-live-caption-text .pop-gold {
+  .studio-live-caption-text .pop-gold,
+  .studio-live-caption-text .pop-minimal {
     animation: none;
   }
 }

@@ -7,6 +7,7 @@ import { AiUsageModal } from './components/AiUsageModal';
 import { ClipTrimmerModal } from './components/ClipTrimmerModal';
 import { AppUpdateModal } from './components/AppUpdateModal';
 import { resilientFetch } from './utils/api';
+import { safeStorage } from './utils/storage';
 import { useLanguage } from './locales';
 import type { AnalyzeResponse, ViralClip, RenderSettings, BatchRenderProgress } from './types';
 
@@ -38,11 +39,11 @@ export default function App() {
   const [isDragOverVideo, setIsDragOverVideo] = useState(false);
   const videoFileInputRef = useRef<HTMLInputElement | null>(null);
   const [durationPref, setDurationPref] = useState<'15s' | '30s' | '60s' | 'auto'>(() => {
-    const saved = localStorage.getItem('cheat_clip_duration_pref');
+    const saved = safeStorage.get('cheat_clip_duration_pref');
     if (saved === '15s' || saved === '30s' || saved === '60s' || saved === 'auto') return saved;
     return '30s';
   });
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('cheat_clip_gemini_api_key') || '');
+  const [apiKey, setApiKey] = useState(() => safeStorage.get('cheat_clip_gemini_api_key') || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isCookiesModalOpen, setIsCookiesModalOpen] = useState(false);
   const [isAiUsageModalOpen, setIsAiUsageModalOpen] = useState(false);
@@ -69,10 +70,10 @@ export default function App() {
 
   // AI model selection and custom focus prompt states
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    const saved = localStorage.getItem('cheat_clip_selected_model');
+    const saved = safeStorage.get('cheat_clip_selected_model');
     // Auto-migrate outdated 1.0 models to gemini-2.5-flash
     if (saved && (saved.includes('1.0') || saved.includes('vision'))) {
-      localStorage.setItem('cheat_clip_selected_model', 'gemini-2.5-flash');
+      safeStorage.set('cheat_clip_selected_model', 'gemini-2.5-flash');
       return 'gemini-2.5-flash';
     }
     return saved || 'gemini-2.5-flash';
@@ -81,11 +82,11 @@ export default function App() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [targetClipCount, setTargetClipCount] = useState<number>(() => {
-    const val = localStorage.getItem('cheat_clip_target_clip_count');
+    const val = safeStorage.get('cheat_clip_target_clip_count');
     return val ? Number(val) : 10;
   });
   const [clipCountMode, setClipCountMode] = useState<'auto' | 'custom'>(() => {
-    const saved = localStorage.getItem('cheat_clip_clip_count_mode');
+    const saved = safeStorage.get('cheat_clip_clip_count_mode');
     return (saved === 'auto' || saved === 'custom') ? saved : 'auto';
   });
 
@@ -706,7 +707,7 @@ export default function App() {
           }
 
           const thumb = (isGDrive || isUpload)
-            ? `/api/frame/${encodeURIComponent(video_id)}?t=2`
+            ? `/api/clip-frame?video_id=${encodeURIComponent(video_id)}&timestamp=2`
             : `https://img.youtube.com/vi/${video_id}/mqdefault.jpg`;
 
           entries.push({
@@ -851,7 +852,7 @@ export default function App() {
           setShowHistory(false);
           if (data.clips?.length > 0) setActiveClip(data.clips[0]);
           // Force recreate the player since we destroyed it
-          setTimeout(() => initPlayer(data.video_id, true), 150);
+          scheduleInitRetry(data.video_id, true, 150, initGenRef.current);
         }, 500);
       }, 600);
     } catch (_) {
@@ -898,7 +899,34 @@ export default function App() {
   };
 
 
+  // --- initPlayer retry handling (bounded, cancellable, generation-guarded) ---
+  const initGenRef = useRef(0);
+  const initTimerRef = useRef<number | null>(null);
+  const initAttemptsRef = useRef(0);
+
+  const scheduleInitRetry = (videoId: string, forceRecreate: boolean, delay: number, gen: number) => {
+    if (gen !== initGenRef.current) return; // superseded by a newer initPlayer call
+    if (initAttemptsRef.current >= 40) {
+      console.warn('initPlayer: giving up after 40 retries');
+      return;
+    }
+    initAttemptsRef.current += 1;
+    if (initTimerRef.current) {
+      clearTimeout(initTimerRef.current);
+    }
+    initTimerRef.current = window.setTimeout(() => {
+      initTimerRef.current = null;
+      if (gen !== initGenRef.current) return;
+      initPlayer(videoId, forceRecreate);
+    }, delay);
+  };
+
   const destroyPlayer = () => {
+    if (initTimerRef.current) {
+      clearTimeout(initTimerRef.current);
+      initTimerRef.current = null;
+    }
+    initGenRef.current += 1; // cancel any in-flight retry chain
     stopTracking();
     if (playerRef.current) {
       try {
@@ -920,6 +948,8 @@ export default function App() {
     if (!videoId || videoId.startsWith('upload_') || videoId.startsWith('gdrive_')) {
       return;
     }
+    const gen = ++initGenRef.current;
+    initAttemptsRef.current = 0;
     // If player already exists and we're not forcing recreate, try to load new video
     if (!forceRecreate && playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
       try {
@@ -934,7 +964,7 @@ export default function App() {
     // If React hasn't completed mounting the dashboard yet, wait and retry.
     const container = document.getElementById('youtube-player-container');
     if (!container) {
-      setTimeout(() => initPlayer(videoId, forceRecreate), 100);
+      scheduleInitRetry(videoId, forceRecreate, 100, gen);
       return;
     }
 
@@ -979,11 +1009,11 @@ export default function App() {
       } catch (err) {
         console.error('Error instantiating YouTube Player:', err);
         // Fallback retry in case of transient iframe injection issues
-        setTimeout(() => initPlayer(videoId, forceRecreate), 300);
+        scheduleInitRetry(videoId, forceRecreate, 300, gen);
       }
     } else {
       // Try again in 200ms if global window.YT is not ready yet
-      setTimeout(() => initPlayer(videoId, forceRecreate), 200);
+      scheduleInitRetry(videoId, forceRecreate, 200, gen);
     }
   };
 
@@ -1318,6 +1348,17 @@ export default function App() {
         }),
       });
 
+      if (!response.ok) {
+        let detail = `Server error ${response.status}`;
+        try {
+          const errJson = await response.json();
+          detail = errJson.detail || errJson.error || errJson.message || detail;
+        } catch {
+          /* non-JSON error body */
+        }
+        throw new Error(detail);
+      }
+
       if (!response.body) throw new Error('No response stream from server.');
 
       const reader = response.body.getReader();
@@ -1432,7 +1473,7 @@ export default function App() {
       setLoading(false);
 
       if (resultData.clips?.length > 0) setActiveClip(resultData.clips[0]);
-      setTimeout(() => initPlayer(resultData!.video_id), 100);
+      scheduleInitRetry(resultData!.video_id, false, 100, initGenRef.current);
 
       // Scroll smoothly to the dashboard so results are immediately visible
       setTimeout(() => {

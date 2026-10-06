@@ -1,8 +1,9 @@
 import logging
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.datastructures import MutableHeaders
 
 # Initialize environment and configuration
 import backend.config
@@ -78,14 +79,36 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    """Adds standard security headers to all responses."""
-    response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    return response
+class SecurityHeadersMiddleware:
+    """
+    Pure-ASGI middleware that adds security headers on `http.response.start`.
+
+    Deliberately NOT implemented with @app.middleware("http") (BaseHTTPMiddleware),
+    which wraps `receive` and therefore prevents route-level code from ever seeing
+    `http.disconnect` — that would break client-disconnect cancellation (e.g. the
+    /api/analyze SSE stream would keep burning CPU/quota after the tab closes).
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_security_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["X-Frame-Options"] = "SAMEORIGIN"
+                headers["X-XSS-Protection"] = "1; mode=block"
+            await send(message)
+
+        await self.app(scope, receive, send_with_security_headers)
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # Include Modular Routers

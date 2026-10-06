@@ -60,13 +60,13 @@ def verify_admin_access(
 
 
 @router.get("/api/temp-storage-info")
-async def get_temp_storage_info():
+def get_temp_storage_info():
     """Returns total files, bytes, and formatted size of temp download storage."""
     return get_temp_storage_summary()
 
 
 @router.post("/api/clear-temp")
-async def clear_temp_folder(authorized: bool = Depends(verify_admin_access)):
+def clear_temp_folder(authorized: bool = Depends(verify_admin_access)):
     """
     Clears all temporary downloaded video clips, audio slices, ASS files, and frames
     from TEMP_DIR and backend/temp. Re-creates empty directories.
@@ -76,7 +76,7 @@ async def clear_temp_folder(authorized: bool = Depends(verify_admin_access)):
 
 
 @router.post("/api/cleanup-expired-temp")
-async def cleanup_expired_temp(max_age_hours: int = 48, authorized: bool = Depends(verify_admin_access)):
+def cleanup_expired_temp(max_age_hours: int = 48, authorized: bool = Depends(verify_admin_access)):
     """Deletes temporary frame images and slices older than max_age_hours."""
     return cleanup_expired_temp_files(max_age_hours=max_age_hours)
 
@@ -131,7 +131,7 @@ def api_check_update():
 
 
 @router.post("/api/system/update")
-async def api_perform_update(authorized: bool = Depends(verify_admin_access)):
+def api_perform_update(authorized: bool = Depends(verify_admin_access)):
     """Pulls latest code, syncs dependencies if modified, and triggers background restart."""
     root_dir = Path(_base_dir).parent
     info = get_current_git_info()
@@ -210,7 +210,7 @@ async def api_perform_update(authorized: bool = Depends(verify_admin_access)):
 
 
 @router.post("/api/system/restart")
-async def api_restart_app(authorized: bool = Depends(verify_admin_access)):
+def api_restart_app(authorized: bool = Depends(verify_admin_access)):
     """Triggers an immediate background restart without pulling code."""
     trigger_detached_restart(delay=2.5)
     return {

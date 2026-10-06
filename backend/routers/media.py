@@ -16,9 +16,11 @@ from backend.config import (
     detect_speaker_face_box,
     extract_clip_frame,
     get_video_file_metadata,
+    has_video_stream,
     is_valid_mp4,
     logger,
 )
+from backend.routers.system import _origin_is_allowed
 
 router = APIRouter(tags=["Media"])
 
@@ -73,11 +75,13 @@ async def _save_uploaded_file_chunked(file: UploadFile, save_path: Path, max_byt
 
 
 @router.post("/api/upload-video")
-async def upload_video(file: UploadFile = File(...)):
+async def upload_video(request: Request, file: UploadFile = File(...)):
     """
     Handles local video file uploads (.mp4, .mov, .mkv, .webm, .avi, etc.).
     Extracts video metadata (duration, resolution, fps) and saves to uploads folder.
     """
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
     
@@ -93,6 +97,21 @@ async def upload_video(file: UploadFile = File(...)):
     
     try:
         bytes_written = await _save_uploaded_file_chunked(file, save_path, MAX_VIDEO_UPLOAD_BYTES)
+
+        # Reject files whose container/streams are unreadable — otherwise the failure
+        # only surfaces much later inside Whisper/ffmpeg with a cryptic message.
+        readable = await asyncio.to_thread(is_valid_mp4, save_path)
+        has_video = readable and await asyncio.to_thread(has_video_stream, save_path)
+        if not has_video:
+            try:
+                save_path.unlink()
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded file is not a readable video (invalid container or no video stream).",
+            )
+
         meta = await asyncio.to_thread(get_video_file_metadata, save_path)
         logger.info(f"Uploaded video '{file.filename}' -> saved as '{unique_name}' ({meta.get('duration')}s, {meta.get('width')}x{meta.get('height')})")
         
@@ -179,17 +198,23 @@ def get_video_file(file_name: str, request: Request):
     if not file_path or not file_path.exists() or not _is_safe_path(file_path):
         raise HTTPException(status_code=404, detail="Video file not found")
 
-    file_size = file_path.stat().st_size
     ext = os.path.splitext(file_path.name)[1].lower()
     media_type = "video/webm" if ext == ".webm" else "video/quicktime" if ext == ".mov" else "video/x-matroska" if ext == ".mkv" else "video/mp4"
 
+    # Open once and read the size from the handle so the declared Content-Length
+    # always matches what this descriptor can actually deliver (the file may be
+    # replaced/cleaned while a client streams it).
+    fh = open(file_path, "rb")
+    file_size = os.fstat(fh.fileno()).st_size
     range_header = request.headers.get("range")
+
     if not range_header:
-        # Full file streaming response with Accept-Ranges
         def iter_full():
-            with open(file_path, "rb") as f:
-                while chunk := f.read(1024 * 512):
+            try:
+                while chunk := fh.read(1024 * 512):
                     yield chunk
+            finally:
+                fh.close()
 
         return StreamingResponse(
             iter_full(),
@@ -202,33 +227,53 @@ def get_video_file(file_name: str, request: Request):
             }
         )
 
-    # Parse Range: bytes=start-end
-    range_match = re.match(r"bytes=(\d+)-(\d*)", range_header)
-    if not range_match:
-        return Response(status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE)
+    # Parse a single Range: bytes=start-end | bytes=start- | bytes=-suffixLen
+    spec = range_header.split("=", 1)[1].split(",")[0].strip() if "=" in range_header else ""
+    match = re.match(r"^(\d*)-(\d*)$", spec)
+    if not match or (not match.group(1) and not match.group(2)):
+        fh.close()
+        return Response(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            headers={"Content-Range": f"bytes */{file_size}"}
+        )
 
-    start = int(range_match.group(1))
-    end = int(range_match.group(2)) if range_match.group(2) else file_size - 1
+    if match.group(1) == "":
+        # Suffix range (e.g. "bytes=-65536") — the final N bytes
+        suffix_len = int(match.group(2) or 0)
+        if suffix_len <= 0:
+            fh.close()
+            return Response(
+                status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+                headers={"Content-Range": f"bytes */{file_size}"}
+            )
+        start = max(0, file_size - suffix_len)
+        end = file_size - 1
+    else:
+        start = int(match.group(1))
+        end = int(match.group(2)) if match.group(2) else file_size - 1
+        end = min(end, file_size - 1)  # RFC 9110: clamp over-long ranges
 
-    if start >= file_size or end >= file_size or start > end:
+    if file_size == 0 or start >= file_size or start > end:
+        fh.close()
         return Response(
             status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
             headers={"Content-Range": f"bytes */{file_size}"}
         )
 
     content_length = end - start + 1
+    fh.seek(start)
 
     def iter_range():
-        with open(file_path, "rb") as f:
-            f.seek(start)
-            bytes_left = content_length
-            while bytes_left > 0:
-                chunk_size = min(1024 * 512, bytes_left)
-                data = f.read(chunk_size)
+        remaining = content_length
+        try:
+            while remaining > 0:
+                data = fh.read(min(1024 * 512, remaining))
                 if not data:
                     break
-                bytes_left -= len(data)
+                remaining -= len(data)
                 yield data
+        finally:
+            fh.close()
 
     return StreamingResponse(
         iter_range(),
@@ -244,7 +289,9 @@ def get_video_file(file_name: str, request: Request):
 
 
 @router.post("/api/upload-bgm")
-async def upload_bgm(file: UploadFile = File(...)):
+async def upload_bgm(request: Request, file: UploadFile = File(...)):
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
     ext = os.path.splitext(file.filename)[1].lower()
@@ -284,7 +331,9 @@ def get_audio_file(file_name: str):
 
 
 @router.post("/api/upload-sfx")
-async def upload_hook_sfx(file: UploadFile = File(...)):
+async def upload_hook_sfx(request: Request, file: UploadFile = File(...)):
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
     ext = os.path.splitext(file.filename)[1].lower()
@@ -314,7 +363,9 @@ async def upload_hook_sfx(file: UploadFile = File(...)):
 
 
 @router.post("/api/upload-watermark")
-async def upload_watermark(file: UploadFile = File(...)):
+async def upload_watermark(request: Request, file: UploadFile = File(...)):
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
     ext = os.path.splitext(file.filename)[1].lower()

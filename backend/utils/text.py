@@ -24,6 +24,7 @@ def parse_time_str(time_str: str) -> float:
             return float(time_parts[0]) + ms
     except ValueError:
         return 0.0
+    return 0.0
 
 def parse_manual_subtitles(content: str, default_duration: float = 0.0) -> List[dict]:
     # Normalize line endings

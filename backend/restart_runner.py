@@ -54,7 +54,7 @@ def free_ports_windows(ports=(8000, 5173)):
                         if local_addr.endswith(f":{p}") and pid != current_pid and pid > 4:
                             try:
                                 subprocess.run(
-                                    ["taskkill", "/F", "/PID", str(pid)],
+                                    ["taskkill", "/F", "/T", "/PID", str(pid)],
                                     shell=False,
                                     stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL
@@ -65,11 +65,13 @@ def free_ports_windows(ports=(8000, 5173)):
         pass
 
 def free_ports_unix(ports=(8000, 5173)):
-    """Frees specified ports on Unix/macOS."""
+    """Frees specified ports on Unix/macOS — only processes LISTENING on them."""
     for p in ports:
         try:
             p_int = int(p)
-            out = subprocess.check_output(["lsof", "-ti", f":{p_int}"], text=True, timeout=5)
+            # -sTCP:LISTEN ensures we only match servers bound to the port,
+            # never clients that merely hold a connection to it (e.g. the browser).
+            out = subprocess.check_output(["lsof", "-tiTCP:%d" % p_int, "-sTCP:LISTEN"], text=True, timeout=5)
             for pid_str in out.splitlines():
                 pid_str = pid_str.strip()
                 if pid_str.isdigit() and int(pid_str) > 1:

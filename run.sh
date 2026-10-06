@@ -8,6 +8,18 @@ cd "$(dirname "$0")"
 unset npm_config_allow_scripts 2>/dev/null || true
 export NODE_ENV=development
 
+# Backend port (default 8001). Ubah jika bentrok, mis. BACKEND_PORT=8002 ./run.sh
+# Dipakai oleh Vite proxy (BACKEND_PORT) dan server (PORT).
+export BACKEND_PORT="${BACKEND_PORT:-8001}"
+export PORT="$BACKEND_PORT"
+
+# Kalau port backend sedang dipakai proses lain, beri tahu lebih awal.
+if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$BACKEND_PORT "; then
+  echo "[!] Port $BACKEND_PORT sedang dipakai proses lain."
+  echo "    Jalankan dengan port lain, contoh:  BACKEND_PORT=8002 ./run.sh"
+  exit 1
+fi
+
 # Sanity check dependensi
 if [ ! -d node_modules ]; then
   echo "[!] node_modules belum ada. Jalankan:"

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { en, type Translations } from './en';
 import { id } from './id';
+import { safeStorage } from '../utils/storage';
 
 export type Language = 'en' | 'id';
 
@@ -15,7 +16,7 @@ const STORAGE_KEY = 'cheat_clip_language';
 const getInitialLanguage = (): Language => {
   if (typeof window === 'undefined') return 'en';
   
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = safeStorage.get(STORAGE_KEY);
   if (saved === 'en' || saved === 'id') {
     return saved;
   }
@@ -35,7 +36,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const setLanguage = (newLang: Language) => {
     setLanguageState(newLang);
-    localStorage.setItem(STORAGE_KEY, newLang);
+    safeStorage.set(STORAGE_KEY, newLang);
   };
 
   // Sync state if another tab updates the preference

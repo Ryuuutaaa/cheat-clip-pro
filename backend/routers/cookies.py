@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -10,6 +11,7 @@ from backend.config import (
     get_effective_cookies_path,
     logger,
 )
+from backend.routers.system import _origin_is_allowed
 from backend.schemas.downloads import CookiesSaveRequest
 
 router = APIRouter(tags=["Cookies"])
@@ -73,6 +75,9 @@ def normalize_to_netscape(raw_content: str) -> str:
                 if count > 0:
                     logger.info(f"Successfully converted {count} JSON cookies into Netscape format.")
                     return "\n".join(lines) + "\n"
+                # JSON parsed but contained no usable cookies (unsupported export shape):
+                # fail loudly instead of writing the raw JSON as a bogus Netscape file.
+                return ""
         except Exception as json_err:
             logger.debug(f"JSON cookie parse check skipped: {json_err}")
 
@@ -99,6 +104,9 @@ def normalize_to_netscape(raw_content: str) -> str:
 
 @router.post("/api/cookies")
 async def save_youtube_cookies(request: Request):
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
+
     content = ""
     # Try reading as JSON first
     try:
@@ -123,14 +131,17 @@ async def save_youtube_cookies(request: Request):
         )
 
     try:
-        COOKIES_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(COOKIES_PATH, "w", encoding="utf-8") as f:
-            f.write(normalized)
-
-        try:
-            ROOT_COOKIES_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with open(ROOT_COOKIES_PATH, "w", encoding="utf-8") as f:
+        def _atomic_write(target) -> None:
+            """Write via temp file + rename so a concurrent yt-dlp write-back can't truncate it."""
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_name(target.name + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
                 f.write(normalized)
+            os.replace(tmp, target)
+
+        _atomic_write(COOKIES_PATH)
+        try:
+            _atomic_write(ROOT_COOKIES_PATH)
         except Exception:
             pass
 
@@ -176,7 +187,9 @@ def get_youtube_cookies_status():
 
 
 @router.delete("/api/cookies")
-def delete_youtube_cookies():
+def delete_youtube_cookies(request: Request):
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
     for p in [COOKIES_PATH, ROOT_COOKIES_PATH]:
         if p.exists():
             try:

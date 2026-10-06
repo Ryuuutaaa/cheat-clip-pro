@@ -3405,7 +3405,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 )}
 
                 {/* Subtitle Overlay with Real-time Up/Down Position & Scaled Font */}
-                {captionStyle !== 'none' && (
+                {captionStyle !== 'none' && !liveCaption && (
                   <div
                     className={`wireframe-caption-overlay style-${captionStyle}${subtitlePositionMode === 'center' ? ' mode-center' : ''}`}
                     style={{
