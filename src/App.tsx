@@ -2730,7 +2730,12 @@ Transcript:
                 </label>
                 <input
                   id="gemini-key-input"
+                  name="gemini-api-key"
                   type={showApiKey ? 'text' : 'password'}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   className={`form-input${!apiKey.trim() ? ' input-error-highlight' : ''}`}
                   placeholder={t.form.apiKeyPlaceholder}
                   value={apiKey}
