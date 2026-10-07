@@ -2648,8 +2648,9 @@ def build_ffmpeg_filtergraph(
     """
     filters = []
 
+    streamer_default_cy = 0.78 if streamer_preset in ["split_top_cam", "pip_corner"] else 0.35
     face_cx = float(face_box.get("cx", face_center_ratio)) if face_box else face_center_ratio
-    face_cy = float(face_box.get("cy", 0.78 if streamer_preset in ["split_top_cam", "pip_corner"] else 0.35)) if face_box else 0.35
+    face_cy = float(face_box.get("cy", streamer_default_cy)) if face_box else streamer_default_cy
 
     # 1. Base Layout & Scaling
     if streamer_preset == "split_top_cam":
@@ -2817,11 +2818,14 @@ def build_ffmpeg_filtergraph(
             if 0.46 <= safe_cx <= 0.54:
                 safe_cx = 0.50
             safe_cx = max(0.22, min(0.78, safe_cx))
-            crop_ratio_safe = max(0.0, min(1.0, (safe_cx - 0.158) / 0.684))
+            # FFmpeg evaluates this against the real input size, so the subject stays centred
+            # for any source aspect ratio. The old precomputed ratio only held for 16:9 inputs
+            # and drifted by tens of pixels on 4:3 / square sources.
+            crop_x_916 = f"'max(0,min(iw-ih*9/16,iw*{safe_cx:.3f}-(ih*9/16)/2))'"
             pip_x, pip_y = 736, 120
             filters.append(
                 f"[0:v]split=2[main_raw][pip_raw];"
-                f"[main_raw]crop=ih*9/16:ih:(iw-ih*9/16)*{crop_ratio_safe:.3f}:0,scale=1080:1920[main_base];"
+                f"[main_raw]crop=ih*9/16:ih:{crop_x_916}:0,scale=1080:1920[main_base];"
                 f"{pip_crop}"
                 f"[main_base][pip_box]overlay=x={pip_x}:y={pip_y}[layout_base]"
             )
@@ -2834,9 +2838,9 @@ def build_ffmpeg_filtergraph(
         if 0.46 <= safe_cx <= 0.54:
             safe_cx = 0.50
         safe_cx = max(0.22, min(0.78, safe_cx))
-        crop_ratio_safe = max(0.0, min(1.0, (safe_cx - 0.158) / 0.684))
+        crop_x_916 = f"'max(0,min(iw-ih*9/16,iw*{safe_cx:.3f}-(ih*9/16)/2))'"
         filters.append(
-            f"[0:v]crop=ih*9/16:ih:(iw-ih*9/16)*{crop_ratio_safe:.3f}:0,scale=1080:1920[layout_base]"
+            f"[0:v]crop=ih*9/16:ih:{crop_x_916}:0,scale=1080:1920[layout_base]"
         )
         current_v = "[layout_base]"
 
