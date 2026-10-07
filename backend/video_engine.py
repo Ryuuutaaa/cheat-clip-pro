@@ -58,6 +58,32 @@ def get_ytdlp_player_clients() -> List[str]:
     raw = (os.environ.get("YTDLP_PLAYER_CLIENTS") or "").strip() or "default,web_embedded,ios"
     return [client.strip() for client in raw.split(",") if client.strip()]
 
+
+# Format selectors for section downloads. The leading terms exclude m3u8 (HLS) variants because
+# YouTube serves the 1080p tier as an HLS DVR playlist for many videos (itag 616,
+# playlist_type/DVR) and neither yt-dlp nor ffmpeg can pull a *section* out of one quickly —
+# measured on the same clip, the HLS pick timed out past 90s while the progressive 1080p pick
+# (itag 399) finished in 29s at the same resolution. The later terms keep HLS reachable as a
+# last resort, so nothing is lost when a video has no progressive stream.
+YTDLP_SECTION_FORMAT_1080 = (
+    "bestvideo[height<=1080][protocol!*=m3u8]+bestaudio[protocol!*=m3u8]"
+    "/best[height<=1080][protocol!*=m3u8]"
+    "/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+    "/bestvideo+bestaudio/best"
+)
+YTDLP_SECTION_FORMAT_720 = (
+    "bestvideo[height<=720][protocol!*=m3u8]+bestaudio[protocol!*=m3u8]"
+    "/best[height<=720][protocol!*=m3u8]"
+    "/bestvideo[height<=720]+bestaudio/best[height<=720]"
+    "/best"
+)
+YTDLP_SECTION_FORMAT_480 = (
+    "bestvideo[height<=480][protocol!*=m3u8]+bestaudio[protocol!*=m3u8]"
+    "/best[height<=480][protocol!*=m3u8]"
+    "/bestvideo[height<=480]+bestaudio/best[height<=480]"
+    "/18/best"
+)
+
 CASCADE_PATH = BASE_DIR / "haarcascade_frontalface_default.xml"
 CASCADES_DIR = BASE_DIR / "cascades"
 YUNET_MODEL_PATH = CASCADES_DIR / "face_detection_yunet.onnx"
@@ -923,7 +949,7 @@ def download_clip_segment(
             *base_cmd,
             "--download-sections", f"*{t_start_fmt}-{t_end_fmt}",
             "--force-keyframes-at-cuts",
-            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+            "-f", YTDLP_SECTION_FORMAT_1080,
             "-N", "4",
             "--socket-timeout", "20",
             "--fragment-retries", "5",
@@ -975,7 +1001,7 @@ def download_clip_segment(
                 *base_cmd,
                 "--socket-timeout", "20",
                 "-g",
-                "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+                "-f", YTDLP_SECTION_FORMAT_1080,
                 clean_url
             ]
             url_res = run_managed(url_cmd, 30)
@@ -1036,7 +1062,7 @@ def download_clip_segment(
                 *base_cmd,
                 "--download-sections", f"*{t_start_fmt}-{t_end_fmt}",
                 "--force-keyframes-at-cuts",
-                "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+                "-f", YTDLP_SECTION_FORMAT_720,
                 "-N", "4",
                 "--socket-timeout", "20",
                 "--fragment-retries", "5",
@@ -1079,7 +1105,7 @@ def download_clip_segment(
                 *base_cmd,
                 "--download-sections", f"*{t_start_fmt}-{t_end_fmt}",
                 "--force-keyframes-at-cuts",
-                "-f", "bestvideo[height<=480]+bestaudio/best[height<=480]/18/best",
+                "-f", YTDLP_SECTION_FORMAT_480,
                 "-N", "2",
                 "--socket-timeout", "20",
                 "--fragment-retries", "3",
