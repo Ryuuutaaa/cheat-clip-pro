@@ -868,6 +868,21 @@ h1, h2, h3, h4 {
   white-space: nowrap;
 }
 
+/* Hashtags shown under each clip title in the studio so the tags travel with the title */
+.batch-title-hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+}
+
+.batch-title-hashtags-label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .timestamp-pill {
   display: inline-flex;
   align-items: center;

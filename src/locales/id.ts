@@ -435,6 +435,7 @@ export const id: Translations = {
     batchClipTitlesDesc: "Kustomisasi teks judul/hook untuk setiap klip yang dicentang sebelum melakukan render batch. Awalan dan akhiran otomatis dipasang.",
     batchClipTitlesEmpty: "Belum ada klip yang dipilih. Centang klip pada checklist di bawah untuk mengedit judul masing-masing.",
     batchClipTitlesPreviewBtn: "👁️ Pratinjau",
+    copiedLabel: "Tersalin",
     batchClipTitlesActivePreview: "Sedang Dipratinjau",
     batchClipTitlesCombinedPreview: "Hook Akhir Spanduk:",
     clipSelectedSingle: "Klip",

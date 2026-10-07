@@ -4425,8 +4425,8 @@ Transcript:
                         </div>
                       )}
 
-                      {/* Suggestions: Title, Caption */}
-                      {(clip.title_suggestion || clip.caption_suggestion) && (
+                      {/* Suggestions: Title, Caption, Hashtags */}
+                      {(clip.title_suggestion || clip.caption_suggestion || clip.hashtag_suggestion) && (
                         <div className="clip-suggestions">
                           {clip.title_suggestion && (
                             <div className="suggestion-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

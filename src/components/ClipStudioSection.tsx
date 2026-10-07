@@ -213,6 +213,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   // Directly reflect marked clips (supports selecting 0 clips)
   const [selectedClips, setSelectedClips] = useState<ViralClip[]>(markedClips);
   const [previewClipIndex, setPreviewClipIndex] = useState<number>(0);
+  // Tracks which clip's upload pack was just copied so the button can confirm it.
+  const [copiedClipKey, setCopiedClipKey] = useState<string | null>(null);
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>('9:16');
   const [backgroundStyle, setBackgroundStyle] = useState<BackgroundStyle>('black');
@@ -3137,6 +3139,30 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           }}
                         />
                       </div>
+
+                      {clip.hashtag_suggestion && (
+                        <div className="batch-title-hashtags">
+                          <span className="batch-title-hashtags-label">{t.results.hashtagsPrefix}</span>
+                          {clip.hashtag_suggestion.toLowerCase().split(/\s+/).filter(Boolean).map((tag, tagIdx) => (
+                            <span key={tagIdx} className="hashtag-chip">{tag}</span>
+                          ))}
+                          <button
+                            type="button"
+                            className="copy-mini-btn has-text"
+                            title={t.results.copyUploadTooltip}
+                            onClick={() => {
+                              const text = `${baseTitle}\n\n${clip.hashtag_suggestion!.toLowerCase()}`.trim();
+                              copyToClipboard(text).then(ok => {
+                                if (!ok) return;
+                                setCopiedClipKey(clipKey);
+                                window.setTimeout(() => setCopiedClipKey(null), 1600);
+                              });
+                            }}
+                          >
+                            {copiedClipKey === clipKey ? `✓ ${t.studio.copiedLabel}` : `⬆️ ${t.results.copyUploadBtn}`}
+                          </button>
+                        </div>
+                      )}
 
                       {(titlePrefix || titleSuffix) && (
                         <div className="batch-title-combined-preview">

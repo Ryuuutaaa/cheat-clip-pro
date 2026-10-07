@@ -433,6 +433,7 @@ export const en = {
     batchClipTitlesDesc: "Customize the title/hook banner text for every selected clip before batch rendering. Prefix and suffix wrap automatically.",
     batchClipTitlesEmpty: "No clips selected. Check clips in the checklist below to edit their individual hook titles.",
     batchClipTitlesPreviewBtn: "👁️ Preview",
+    copiedLabel: "Copied",
     batchClipTitlesActivePreview: "Active Preview",
     batchClipTitlesCombinedPreview: "Final Banner Hook:",
     clipSelectedSingle: "Clip",
