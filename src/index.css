@@ -67,11 +67,12 @@
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Visible keyboard focus everywhere (previously missing entirely) */
+/* Visible keyboard focus everywhere (previously missing entirely).
+   NOTE: no border-radius here — it would visibly round sharp-cornered
+   elements (cards, drop zones) the moment they receive keyboard focus. */
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-  border-radius: var(--radius-xs);
 }
 
 button:focus:not(:focus-visible),

@@ -320,6 +320,19 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     [wordChunks, currentTime, captionStyle]
   );
 
+  // How many hidden (advanced) settings are actually active — surfaced on the toggle
+  // so nobody renders with a setting they can no longer see.
+  const advancedActiveCount = useMemo(() => {
+    let count = 0;
+    if (hookSfxEnabled) count++;
+    if (watermarkEnabled) count++;
+    if (originalAudioVolume !== 100) count++;
+    if ((fileNamePrefix || '').trim() || (fileNameSuffix || '').trim()) count++;
+    if (hardwareAccel && hardwareAccel !== 'auto') count++;
+    if (Object.values(customClipTitles).some(v => (v || '').trim())) count++;
+    return count;
+  }, [hookSfxEnabled, watermarkEnabled, originalAudioVolume, fileNamePrefix, fileNameSuffix, hardwareAccel, customClipTitles]);
+
   // Face & object detection tracking state
   const [faceBox, setFaceBox] = useState<{ cx: number; cy: number; w: number; h: number; found: boolean; type?: string }>({
     cx: 0.5,
@@ -1339,6 +1352,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             aria-expanded={showAdvanced}
           >
             {showAdvanced ? t.studio.advancedHide : t.studio.advancedShow}
+            {!showAdvanced && advancedActiveCount > 0 ? ` (${advancedActiveCount})` : ''}
           </button>
           {/* 1. Canvas & Inner Aspect Ratio */}
           <div className="studio-card-group">

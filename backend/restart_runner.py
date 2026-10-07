@@ -1,7 +1,8 @@
 """
 Detached background restart runner for Cheat Clip PRO.
 Spawns as an independent detached process, waits for HTTP response delivery,
-frees ports 8000 and 5173, and relaunches `npm run dev` in a fresh console.
+frees the configured ports (default 8000/5173, override with --ports),
+and relaunches `npm run dev` in a fresh console.
 """
 
 import os
@@ -88,18 +89,32 @@ def main():
     parser = argparse.ArgumentParser(description="Cheat Clip PRO Background Restart Runner")
     parser.add_argument("--delay", type=float, default=2.5, help="Seconds to wait before freeing ports")
     parser.add_argument("--cwd", type=str, default="", help="Workspace root directory")
+    parser.add_argument(
+        "--ports",
+        type=str,
+        default="8000,5173",
+        help="Comma-separated ports to free (backend,frontend)",
+    )
     args = parser.parse_args()
+
+    try:
+        ports = tuple(int(p.strip()) for p in args.ports.split(",") if p.strip())
+    except ValueError:
+        logger.warning(f"Invalid --ports value '{args.ports}', falling back to 8000,5173")
+        ports = (8000, 5173)
+    if not ports:
+        ports = (8000, 5173)
 
     root_dir = Path(args.cwd).resolve() if args.cwd else Path(__file__).resolve().parent.parent
     logger.info(f"Restart sequence initialized for: {root_dir}")
     logger.info(f"Waiting {args.delay}s to allow client response to complete...")
     time.sleep(args.delay)
 
-    logger.info("Freeing ports 8000 and 5173...")
+    logger.info(f"Freeing ports {', '.join(str(p) for p in ports)}...")
     if os.name == "nt":
-        free_ports_windows((8000, 5173))
+        free_ports_windows(ports)
     else:
-        free_ports_unix((8000, 5173))
+        free_ports_unix(ports)
 
     time.sleep(1.0)
 

@@ -3,8 +3,9 @@ import react from '@vitejs/plugin-react'
 
 // Backend port is configurable so the app can run alongside other services
 // (e.g. a Laravel/php dev server that already occupies 8000).
-// Set BACKEND_PORT in your shell (run.sh does this automatically).
-const BACKEND_PORT = process.env.BACKEND_PORT || '8000'
+// Precedence must MATCH scripts/start-backend.js exactly (PORT → BACKEND_PORT),
+// otherwise the proxy would point at a different port than the server listens on.
+const BACKEND_PORT = process.env.PORT || process.env.BACKEND_PORT || '8000'
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`
 
 // https://vite.dev/config/

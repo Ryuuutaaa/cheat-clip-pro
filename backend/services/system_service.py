@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -70,6 +71,14 @@ def clear_temp_files() -> dict:
         except Exception:
             return False
 
+    def is_recently_active(p: Path) -> bool:
+        """Files written seconds ago are probably being streamed or rendered right now —
+        deleting them aborts playback with a Content-Length mismatch mid-stream."""
+        try:
+            return (time.time() - p.stat().st_mtime) < 120
+        except Exception:
+            return False
+
     target_dirs = [TEMP_DIR, base_dir / "temp"]
     for d in target_dirs:
         if d.exists() and d.is_dir():
@@ -84,16 +93,23 @@ def clear_temp_files() -> dict:
                         continue
 
                     if item.is_file() or item.is_symlink():
+                        if is_recently_active(item):
+                            logger.info(f"Skipping temp file that is likely in use: {item}")
+                            continue
                         sz = item.stat().st_size
                         item.unlink()
                         cleared_files += 1
                         cleared_bytes += sz
                     elif item.is_dir():
                         has_cookie = False
+                        has_recent = False
                         for sub in list(item.rglob("*")):
                             if is_protected_cookie(sub):
                                 has_cookie = True
                                 logger.info(f"Preserving protected cookie file inside folder: {sub}")
+                                continue
+                            if is_recently_active(sub):
+                                has_recent = True
                                 continue
                             if sub.is_file() or sub.is_symlink():
                                 try:
@@ -102,7 +118,7 @@ def clear_temp_files() -> dict:
                                     sub.unlink()
                                 except Exception:
                                     pass
-                        if not has_cookie:
+                        if not has_cookie and not has_recent:
                             shutil.rmtree(item, ignore_errors=True)
                 except Exception as e:
                     logger.warning(f"Could not delete temp item {item}: {e}")
@@ -234,13 +250,24 @@ def trigger_detached_restart(delay: float = 2.5):
     """Launches backend/restart_runner.py in a fully detached background process."""
     root_dir = Path(_base_dir).parent
     runner_script = root_dir / "backend" / "restart_runner.py"
-    
+
+    # Free the ports this instance is ACTUALLY using — they are configurable
+    # (BACKEND_PORT/PORT), so hard-coded 8000/5173 would leave the old process alive
+    # and the relaunched app would fail to bind.
+    backend_port = (
+        os.environ.get("PORT") or os.environ.get("BACKEND_PORT") or "8000"
+    ).strip() or "8000"
+    frontend_port = (
+        os.environ.get("FRONTEND_PORT") or os.environ.get("VITE_PORT") or "5173"
+    ).strip() or "5173"
+
     flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS) if os.name == 'nt' else 0
     subprocess.Popen(
-        [sys.executable, str(runner_script), "--delay", str(delay), "--cwd", str(root_dir)],
+        [sys.executable, str(runner_script), "--delay", str(delay), "--cwd", str(root_dir),
+         "--ports", f"{backend_port},{frontend_port}"],
         cwd=str(root_dir),
         creationflags=flags,
         start_new_session=True if os.name != 'nt' else False,
         close_fds=True
     )
-    logger.info(f"Detached restart runner spawned with delay={delay}s")
+    logger.info(f"Detached restart runner spawned with delay={delay}s (ports: {backend_port},{frontend_port})")

@@ -893,11 +893,11 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
                     )
                 ))
                 
-                call_start = asyncio.get_event_loop().time()
+                call_start = asyncio.get_running_loop().time()
                 while not task.done():
                     done, _ = await asyncio.wait([task], timeout=2.0)
                     if not done:
-                        elapsed = int(asyncio.get_event_loop().time() - call_start)
+                        elapsed = int(asyncio.get_running_loop().time() - call_start)
                         
                         if elapsed < 5:
                             stage = "Neural Context Loading"

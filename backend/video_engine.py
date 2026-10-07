@@ -129,6 +129,7 @@ def run_managed(cmd, timeout, capture_output=True, text=True, **kwargs):
         stdout=subprocess.PIPE if capture_output else None,
         stderr=subprocess.PIPE if capture_output else None,
         text=text,
+        errors="replace" if text else None,
         start_new_session=(not is_windows),
         creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP if is_windows else 0),
         **kwargs,
@@ -193,13 +194,16 @@ def _throttle_remote_download() -> None:
         min_interval = 3.0
     if min_interval <= 0:
         return
+    # Reserve the next slot while holding the lock, then sleep OUTSIDE it so
+    # concurrent downloads never block each other (nor the shared threadpool).
     with _REMOTE_DOWNLOAD_LOCK:
         now = time.monotonic()
-        wait = min_interval - (now - _LAST_REMOTE_DOWNLOAD_TS)
-        if wait > 0:
-            logger.info(f"Throttling remote download: waiting {wait:.1f}s to avoid YouTube rate-limit/bot detection.")
-            time.sleep(wait)
-        _LAST_REMOTE_DOWNLOAD_TS = time.monotonic()
+        start_at = max(now, _LAST_REMOTE_DOWNLOAD_TS + min_interval)
+        _LAST_REMOTE_DOWNLOAD_TS = start_at
+    wait = start_at - time.monotonic()
+    if wait > 0:
+        logger.info(f"Throttling remote download: waiting {wait:.1f}s to avoid YouTube rate-limit/bot detection.")
+        time.sleep(wait)
 
 
 # Global lazy-loaded whisper model
@@ -491,7 +495,21 @@ def has_video_stream(file_path: Union[str, Path]) -> bool:
             str(p)
         ]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
-        return res.returncode == 0 and "video" in (res.stdout or "").lower()
+        if res.returncode == 0:
+            return "video" in (res.stdout or "").lower()
+    except FileNotFoundError:
+        pass  # ffprobe missing → fall through to the ffmpeg check
+    except Exception:
+        return False
+
+    # ffprobe unavailable or failed: derive it from ffmpeg's stream listing instead
+    # of wrongly reporting "no video stream" (which would blame the user's cookies).
+    try:
+        res = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-i", str(p)],
+            capture_output=True, text=True, timeout=8
+        )
+        return "Video:" in (res.stderr or "")
     except Exception:
         return False
 
