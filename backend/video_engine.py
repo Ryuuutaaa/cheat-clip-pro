@@ -2561,6 +2561,7 @@ def detect_speaker_face_box(
             frame = cv2.imread(source_path)
             if frame is None:
                 return default_res
+            img_h, img_w = frame.shape[:2]
             img_faces = detect_frame_faces(frame)
             if not img_faces:
                 # Non-facecam image: detect salient focal point
@@ -2585,7 +2586,31 @@ def detect_speaker_face_box(
                 if not fg_faces:
                     # Tiny corner webcam in image: center on non-facecam main content
                     sal_cx, sal_cy = detect_image_saliency_center(frame)
-                    return {"found": True, "type": "salient_object", "cx": float(round(sal_cx, 3)), "cy": float(round(sal_cy, 3)), "w": 0.25, "h": 0.25}
+                    return {"found": True, "type": "salient_object", "cx": float(round(sal_cx, 3)), "cy": float(round(sal_cy, 3)), "w": 0.25, "h": 0.25, "aspect": float(round(img_w / img_h, 4))}
+
+                # Two speakers on opposite sides of the frame: this is a wide two-shot (interview,
+                # podcast, co-host), so no single face is "the" subject. Track neither and keep both
+                # in frame — the same rule the multi-frame path applies to video sources, which is
+                # what made the preview disagree with the rendered output.
+                left_faces = [f for f in fg_faces if f["cx"] < 0.40]
+                right_faces = [f for f in fg_faces if f["cx"] > 0.60]
+                if left_faces and right_faces:
+                    big_left = max(left_faces, key=lambda f: f["w"] * f["h"])
+                    big_right = max(right_faces, key=lambda f: f["w"] * f["h"])
+                    areas = sorted((big_left["w"] * big_left["h"], big_right["w"] * big_right["h"]))
+                    if areas[0] >= 0.55 * areas[1]:
+                        mid_cx = (big_left["cx"] + big_right["cx"]) / 2.0
+                        return {
+                            "found": True,
+                            "type": "multi_speaker",
+                            "dual_speakers": True,
+                            "cx": float(round(mid_cx, 3)),
+                            "cy": 0.35,
+                            "w": 0.25,
+                            "h": 0.25,
+                            "aspect": float(round(img_w / img_h, 4))
+                        }
+
                 chosen = max(fg_faces, key=lambda f: (f["w"] * f["h"]) * (1.0 - 0.35 * abs(f["cx"] - 0.5)))
 
             final_cx = float(chosen["cx"])
@@ -2599,7 +2624,9 @@ def detect_speaker_face_box(
                 "cx": float(round(final_cx, 3)),
                 "cy": float(round(chosen["cy"], 3)),
                 "w": float(round(chosen["w"], 3)),
-                "h": float(round(chosen["h"], 3))
+                "h": float(round(chosen["h"], 3)),
+                # Lets the preview reproduce the renderer's crop maths for any source shape.
+                "aspect": float(round(img_w / img_h, 4))
             }
 
         # Case 2: Video source
@@ -2613,6 +2640,7 @@ def detect_speaker_face_box(
 
         detections = []
         sampled_small_frames = []
+        source_w, source_h = 0, 0
         frame_idx = 0
         checked = 0
         while cap.isOpened() and frame_idx < total_frames and checked < 25:
@@ -2622,6 +2650,8 @@ def detect_speaker_face_box(
             checked += 1
             if not ret or frame is None:
                 continue
+            if not source_w:
+                source_h, source_w = frame.shape[:2]
             sampled_small_frames.append(cv2.resize(frame, (320, 180)))
             f_faces = detect_frame_faces(frame)
             if f_faces:
@@ -2707,7 +2737,8 @@ def detect_speaker_face_box(
             right_speakers = [c for c in foreground_clusters if c["cx"] > 0.60 and len(c["pts"]) >= 3]
             if left_speakers and right_speakers:
                 mid_cx = (max(left_speakers, key=lambda c: len(c["pts"]))["cx"] + max(right_speakers, key=lambda c: len(c["pts"]))["cx"]) / 2.0
-                return {"found": True, "cx": float(round(mid_cx, 3)), "cy": 0.35, "w": 0.25, "h": 0.25, "dual_speakers": True}
+                return {"found": True, "cx": float(round(mid_cx, 3)), "cy": 0.35, "w": 0.25, "h": 0.25, "dual_speakers": True,
+                        "aspect": float(round(source_w / source_h, 4)) if source_h else None}
 
             # Rank foreground candidates by: consistency * size * confidence * center prior
             def score_cluster(c):
@@ -2738,7 +2769,9 @@ def detect_speaker_face_box(
             "cx": float(round(final_cx, 3)),
             "cy": float(round(chosen["cy"], 3)),
             "w": float(round(avg_w, 3)),
-            "h": float(round(avg_h, 3))
+            "h": float(round(avg_h, 3)),
+            # Lets the preview reproduce the renderer's crop maths for any source shape.
+            "aspect": float(round(source_w / source_h, 4)) if source_h else None
         }
     except Exception as e:
         logger.warning(f"Face/object detection encountered error: {e}, safely falling back to center.")

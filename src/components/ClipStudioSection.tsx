@@ -339,7 +339,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   }, [hookSfxEnabled, watermarkEnabled, originalAudioVolume, fileNamePrefix, fileNameSuffix, hardwareAccel, customClipTitles]);
 
   // Face & object detection tracking state
-  const [faceBox, setFaceBox] = useState<{ cx: number; cy: number; w: number; h: number; found: boolean; type?: string }>({
+  const [faceBox, setFaceBox] = useState<{ cx: number; cy: number; w: number; h: number; found: boolean; type?: string; aspect?: number }>({
     cx: 0.5,
     cy: 0.35,
     w: 0.25,
@@ -378,7 +378,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   // Each request is expensive on the server (it extracts a frame from the source video), so
   // results are cached per clip + framing and superseded requests are aborted rather than left
   // running — the preview used to fire the same request two or three times over.
-  const faceBoxCacheRef = useRef<Map<string, { cx: number; cy: number; w: number; h: number; found: boolean; type?: string }>>(new Map());
+  const faceBoxCacheRef = useRef<Map<string, { cx: number; cy: number; w: number; h: number; found: boolean; type?: string; aspect?: number }>>(new Map());
   const faceAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -432,6 +432,24 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         safeCx = 0.50;
       }
       safeCx = Math.max(0.15, Math.min(0.85, safeCx));
+
+      // Mirror the renderer exactly: the crop keeps min(iw, ih * outputRatio) and slides within
+      // whatever width is left over, so the preview holds for any source shape. The old constants
+      // (0.158 / 0.684 and friends) only described a 16:9 source.
+      if (typeof faceBox.aspect === 'number' && faceBox.aspect > 0) {
+        const outputRatio = aspectRatio === '16:9' || aspectRatio === '16:9_landscape' ? 16 / 9
+          : aspectRatio === '4:3' ? 4 / 3
+          : aspectRatio === '1:1' ? 1
+          : 9 / 16;
+        const cropFraction = Math.min(1, outputRatio / faceBox.aspect);
+        const slack = 1 - cropFraction;
+        const ratio = slack > 0.001
+          ? Math.max(0, Math.min(1, (safeCx - cropFraction / 2) / slack))
+          : 0.5;
+        return Math.round(ratio * 100);
+      }
+
+      // Fallback for a response without the source aspect (assumes a 16:9 source).
       if (aspectRatio === '9:16') {
         const cropRatio = Math.max(0.0, Math.min(1.0, (safeCx - 0.158) / 0.684));
         return Math.round(cropRatio * 100);
@@ -1483,19 +1501,30 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 <div className="horizontal-framing-selector" style={{ marginTop: '0.65rem', paddingLeft: '1.6rem' }}>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                     <span>{t.studio.horizontalFramingLabel || 'Horizontal Framing / Focal Point:'}</span>
-                    {faceBox?.found && facecamPosition === 'auto' && (
-                      <span style={{
-                        fontSize: '0.7rem',
-                        padding: '0.15rem 0.5rem',
-                        borderRadius: '4px',
-                        background: faceBox.type === 'salient_object' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-                        color: faceBox.type === 'salient_object' ? '#38bdf8' : '#4ade80',
-                        border: `1px solid ${faceBox.type === 'salient_object' ? 'rgba(56, 189, 248, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`,
-                        fontWeight: 600
-                      }}>
-                        {faceBox.type === 'salient_object' ? '🎯 AI Object Focus' : '👤 AI Face Focus'}
-                      </span>
-                    )}
+                    {faceBox?.found && facecamPosition === 'auto' && (() => {
+                      // Three outcomes deserve different colours: a tracked face, a tracked object,
+                      // and a two-shot where tracking either speaker would cut the other one out.
+                      const isObject = faceBox.type === 'salient_object';
+                      const isMulti = faceBox.type === 'multi_speaker';
+                      const tone = isMulti
+                        ? { bg: 'rgba(234, 179, 8, 0.15)', fg: '#facc15', border: 'rgba(234, 179, 8, 0.35)' }
+                        : isObject
+                        ? { bg: 'rgba(56, 189, 248, 0.15)', fg: '#38bdf8', border: 'rgba(56, 189, 248, 0.3)' }
+                        : { bg: 'rgba(34, 197, 94, 0.15)', fg: '#4ade80', border: 'rgba(34, 197, 94, 0.3)' };
+                      return (
+                        <span style={{
+                          fontSize: '0.7rem',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '4px',
+                          background: tone.bg,
+                          color: tone.fg,
+                          border: `1px solid ${tone.border}`,
+                          fontWeight: 600
+                        }}>
+                          {isMulti ? t.studio.aiMultiSpeaker : isObject ? t.studio.aiObjectFocus : t.studio.aiFaceFocus}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="pill-group framing-pills" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                     {[
