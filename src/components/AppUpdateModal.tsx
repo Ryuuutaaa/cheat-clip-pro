@@ -263,6 +263,7 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose 
                 transition: 'all 0.15s ease',
               }}
               title={t.updateModal.closeBtn}
+              aria-label={t.updateModal.closeBtn}
             >
               ✕
             </button>

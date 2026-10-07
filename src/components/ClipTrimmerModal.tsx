@@ -622,6 +622,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
             className="studio-close-btn"
             onClick={onClose}
             title={t.trimmer.closeBtn}
+            aria-label={t.trimmer.closeBtn}
             style={{ cursor: 'pointer' }}
           >
             ✕

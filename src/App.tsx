@@ -3127,6 +3127,7 @@ Transcript:
                       padding: 0
                     }}
                     title={t.form.clearSearch}
+                    aria-label={t.form.clearSearch}
                   >
                     ✕
                   </button>
@@ -3413,6 +3414,7 @@ Transcript:
                               fontSize: '0.75rem'
                             }}
                             title={t.form.removeFromHistory}
+                            aria-label={t.form.removeFromHistory}
                           >
                             ✕
                           </button>

@@ -2293,6 +2293,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       className="bgm-remove-btn"
                       onClick={handleRemoveBgm}
                       title={t.studio.bgmRemoveTooltip}
+                      aria-label={t.studio.bgmRemoveTooltip}
                     >
                       ✕
                     </button>
@@ -2462,6 +2463,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       className="bgm-remove-btn"
                       onClick={handleRemoveHookSfx}
                       title={t.studio.hookSfxRemoveTooltip}
+                      aria-label={t.studio.hookSfxRemoveTooltip}
                     >
                       ✕
                     </button>
@@ -2655,6 +2657,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           className="bgm-remove-btn"
                           onClick={handleRemoveWatermarkImage}
                           title={t.studio.watermarkRemoveTooltip}
+                          aria-label={t.studio.watermarkRemoveTooltip}
                         >
                           ✕
                         </button>
@@ -3835,6 +3838,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         onClick={onDismissProgress}
                         style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1rem', padding: '0.1rem 0.3rem' }}
                         title={t.studio.dismissQueue}
+                        aria-label={t.studio.dismissQueue}
                       >
                         ✕
                       </button>
