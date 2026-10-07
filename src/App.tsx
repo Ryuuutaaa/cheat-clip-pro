@@ -4452,12 +4452,7 @@ Transcript:
                               <div style={{ flex: 1 }}>
                                 <span className="suggestion-label">{t.results.captionPrefix}</span>{' '}
                                 <span className="suggestion-value">
-                                  {(() => {
-                                    const lowercaseHashtags = (clip.hashtag_suggestion || '').toLowerCase();
-                                    if (!lowercaseHashtags) return clip.caption_suggestion;
-                                    if (clip.caption_suggestion.toLowerCase().includes(lowercaseHashtags)) return clip.caption_suggestion;
-                                    return `${clip.caption_suggestion} ${lowercaseHashtags}`;
-                                  })()}
+                                  {clip.caption_suggestion}
                                 </span>
                               </div>
                               <button
@@ -4478,6 +4473,44 @@ Transcript:
                               >
                                 📋
                               </button>
+                            </div>
+                          )}
+                          {clip.hashtag_suggestion && (
+                            <div className="suggestion-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div style={{ flex: 1 }}>
+                                <span className="suggestion-label">{t.results.hashtagsPrefix}</span>{' '}
+                                <span className="suggestion-value">
+                                  {clip.hashtag_suggestion.toLowerCase().split(/\s+/).filter(Boolean).map((tag, tagIdx) => (
+                                    <span key={tagIdx} className="hashtag-chip">{tag}</span>
+                                  ))}
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  className="copy-mini-btn has-text"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const title = (clip.title_suggestion || clip.title || '').trim();
+                                    const tags = (clip.hashtag_suggestion || '').toLowerCase().trim();
+                                    handleCopyText(`${title}\n\n${tags}`.trim(), t.results.copyUploadBtn);
+                                  }}
+                                  title={t.results.copyUploadTooltip}
+                                >
+                                  ⬆️ {t.results.copyUploadBtn}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="copy-mini-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCopyText((clip.hashtag_suggestion || '').toLowerCase(), t.results.hashtagsLabel);
+                                  }}
+                                  title={t.results.copyHashtagsTooltip}
+                                >
+                                  📋
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>

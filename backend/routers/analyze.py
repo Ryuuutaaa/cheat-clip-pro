@@ -56,6 +56,7 @@ from backend.utils.text import (
     detect_transcript_language,
     extract_video_id,
     lowercase_hashtags_in_string,
+    normalize_clip_hashtags,
     parse_manual_subtitles,
     sanitize_first_person_title,
 )
@@ -834,7 +835,13 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
             f"   - `title`: Catchy title in {lang_name.upper()}, max 8 words.\n"
             f"   - `title_suggestion`: Alternative title in {lang_name.upper()}.\n"
             f"   - `caption_suggestion`: Engaging social caption in {lang_name.upper()}.\n"
-            f"   - `hashtag_suggestion`: Relevant hashtags in {lang_name.upper()}.\n"
+            f"   - `hashtag_suggestion`: MINIMUM 4 hashtags for THIS clip, space separated, lowercase, no duplicates — nothing else in this field.\n"
+            f"     Build them for discovery on TikTok / Reels / Shorts:\n"
+            f"       * 1-2 broad reach tags that carry distribution (e.g. #fyp #viral #shorts #foryou).\n"
+            f"       * 2-4 tags naming THIS clip's specific topic, claim or subject, written in {lang_name.upper()}.\n"
+            f"       * 1-2 tags for the audience, field or speaker (profession, community, or the speaker's name).\n"
+            f"     Use 4 tags for a single-topic clip, up to 10 when the clip covers several distinct topics.\n"
+            f"     NEVER invent brand names, NEVER use banned/spammy tags, and NEVER repeat a tag.\n"
             f"   - `key_quotes`: MUST be verbatim spoken quotes directly from the transcript in {lang_name.upper()}.\n"
             f"================================================================================\n\n"
             f"{duration_instruction}\n\n"
@@ -1247,9 +1254,9 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
                 if max(line.get("start", 0.0), start) < min(line.get("end", 0.0), end)
             ]
             
-            # Ensure hashtags are always lowercase
+            # Ensure hashtags are always lowercase and always usable: at least 4 per clip.
             caption_sug = lowercase_hashtags_in_string(raw_clip.get('caption_suggestion', ''))
-            hashtag_sug = lowercase_hashtags_in_string(raw_clip.get('hashtag_suggestion', ''))
+            hashtag_sug = normalize_clip_hashtags(raw_clip.get('hashtag_suggestion', ''))
             
             final_clips.append(ViralClip(
                 title=sanitize_first_person_title(raw_clip.get('title', ''), channel, lang=lang_code),

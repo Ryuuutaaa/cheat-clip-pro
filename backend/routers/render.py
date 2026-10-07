@@ -11,6 +11,8 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
+from backend.utils.text import build_clip_metadata_text
+
 from backend.config import (
     ACTIVE_ENCODER_NAME,
     EXPORTS_DIR,
@@ -51,6 +53,9 @@ async def start_batch_render(request: RenderBatchRequest, background_tasks: Back
             "clip_index": idx,
             "title": full_t,
             "base_title": base_t,
+            # Carried through so the batch archive can ship upload-ready metadata per clip.
+            "caption_suggestion": (c.get("caption_suggestion") or "").strip(),
+            "hashtag_suggestion": (c.get("hashtag_suggestion") or "").strip(),
             "status": "pending",
             "progress_percent": 0
         })
@@ -196,6 +201,12 @@ def download_batch_zip(batch_id: str):
                             title_counts[clean_title] = count + 1
                             arc_name = f"{clean_title}.mp4" if count == 0 else f"{clean_title} ({count}).mp4"
                             zipf.write(c_out, arcname=arc_name)
+                            meta_name = arc_name[:-4] + ".txt"
+                            zipf.writestr(meta_name, build_clip_metadata_text(
+                                c.get("title") or clean_title,
+                                c.get("caption_suggestion", ""),
+                                c.get("hashtag_suggestion", ""),
+                            ))
             except Exception as e:
                 logger.error(f"Error packaging batch zip on the fly: {e}")
     if not file_path.exists():

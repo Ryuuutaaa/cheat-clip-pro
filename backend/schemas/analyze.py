@@ -11,7 +11,7 @@ class ViralClip(BaseModel):
     transcript: str = Field(description="Spoken text of the clip")
     title_suggestion: str = Field(default="", description="Catchy alternative title suggestion. MUST NEVER use first-person pronouns ('I', 'me', 'my'). Attribute to speaker or objective topic.")
     caption_suggestion: str = Field(default="", description="Engaging social media caption suggestion attributing quotes or insights to the speaker.")
-    hashtag_suggestion: str = Field(default="", description="Relevant hashtags suggestion (e.g. #hashtag1 #hashtag2)")
+    hashtag_suggestion: str = Field(default="", description="AT LEAST 4 hashtags for this clip, space separated, lowercase, no duplicates. Mix universal reach tags (#fyp #viral #shorts) with tags specific to this clip's topic, speaker and audience, written in the video's language. Add more (up to 10) when the clip covers several distinct topics.")
 
 class ViralClipGemini(BaseModel):
     title: str = Field(description="Catchy clip title, max 8 words, in the EXACT SAME LANGUAGE as the video transcript (STRICT ZERO-TRANSLATION RULE: English is English, Indonesian is Indonesian, Spanish is Spanish). NEVER use first-person pronouns ('I', 'me', 'my', 'myself', 'aku', 'saya'). Attribute to the person speaking by name, host/guest title, or use third-person objective framing so it does not look like the user's opinion.")
@@ -22,7 +22,7 @@ class ViralClipGemini(BaseModel):
     key_quotes: List[str] = Field(description="1-2 verbatim quotes directly spoken in the clip, in the original language of the video without translation")
     title_suggestion: str = Field(default="", description="Catchy alternative title suggestion in the EXACT SAME LANGUAGE as the video transcript (DO NOT translate). STRICT RULE: NEVER use first-person ('I', 'me', 'my', 'saya', 'aku'). Attribute to the speaker/host/guest by name or topic.")
     caption_suggestion: str = Field(default="", description="Engaging social media caption suggestion written in the EXACT SAME LANGUAGE as the video transcript (DO NOT translate to any other language), attributing insights or story to the speaker.")
-    hashtag_suggestion: str = Field(default="", description="Relevant hashtags suggestion in the SAME LANGUAGE as the video transcript (e.g. #hashtag1 #hashtag2)")
+    hashtag_suggestion: str = Field(default="", description="AT LEAST 4 hashtags for this clip, space separated, lowercase, no duplicates. Mix reach tags (#fyp #viral #shorts) with tags specific to THIS clip's topic, speaker and audience. Add more (up to 10) when the clip covers several distinct topics.")
 
 class VideoAnalysis(BaseModel):
     summary: str = Field(description="1-2 sentence video summary in the EXACT SAME LANGUAGE as the video transcript (STRICT ZERO-TRANSLATION RULE: English stays English, Indonesian stays Indonesian, Spanish stays Spanish), followed by 2-4 relevant hashtags")

@@ -160,6 +160,50 @@ def lowercase_hashtags_in_string(text: str) -> str:
         return text
     return re.sub(r'#\w+', lambda m: m.group(0).lower(), text)
 
+
+# Reach tags that carry distribution on the short-form platforms. These only fill a clip up to the
+# minimum, so the model's topic-specific tags always stay in front.
+DEFAULT_FYP_HASHTAGS = ["#fyp", "#viral", "#shorts", "#trending", "#foryou"]
+
+
+def normalize_clip_hashtags(raw: str, minimum: int = 4, maximum: int = 10) -> str:
+    """
+    Normalizes one clip's hashtags and guarantees the field is usable as-is.
+
+    The model is asked for at least four, but it sometimes returns one or two generic tags or
+    none at all — and this field gets pasted straight into an upload form. Tags are lowercased,
+    deduplicated and reduced to what a platform actually parses (# is followed by word characters,
+    so "#covid-19" becomes "#covid" exactly as it would on the platform). When fewer than
+    `minimum` tags survive, universal reach tags fill the gap.
+    """
+    found: list[str] = []
+    for body in re.findall(r"#(\w+)", (raw or "").lower()):
+        tag = f"#{body}"
+        if tag not in found:
+            found.append(tag)
+    for filler in DEFAULT_FYP_HASHTAGS:
+        if len(found) >= minimum:
+            break
+        if filler not in found:
+            found.append(filler)
+    return " ".join(found[:maximum])
+
+
+def build_clip_metadata_text(title: str, caption: str = "", hashtags: str = "") -> str:
+    """
+    Upload-ready metadata for one clip, shipped next to its rendered MP4.
+
+    The layout is deliberate: the title on the first line (what an upload form asks for first),
+    then the caption, then the hashtags alone on the last line so the tag block can be copied by
+    itself. Hashtags are stripped from the caption to avoid shipping them twice.
+    """
+    lines = [(title or "").strip(), ""]
+    caption_clean = re.sub(r"#\w+", "", caption or "").strip()
+    if caption_clean:
+        lines.extend([caption_clean, ""])
+    lines.append(normalize_clip_hashtags(hashtags))
+    return "\n".join(lines).strip() + "\n"
+
 LANGUAGE_NAMES = {
     'id': 'Indonesian (Bahasa Indonesia)',
     'en': 'English',

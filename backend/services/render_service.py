@@ -5,6 +5,8 @@ import re
 import zipfile
 from typing import Any, Dict, List, Optional
 
+from backend.utils.text import build_clip_metadata_text
+
 from backend.config import (
     EXPORTS_DIR,
     TEMP_DIR,
@@ -267,6 +269,14 @@ def update_batch_summary_and_zip(batch_id: str, settings: RenderSettingsModel):
                         title_counts[formatted_name] = count + 1
                         arc_name = f"{formatted_name}.mp4" if count == 0 else f"{formatted_name} ({count}).mp4"
                         zipf.write(fpath, arcname=arc_name)
+                        # Ship the upload metadata beside the video so the clipper never has to
+                        # copy the title and hashtags out of the UI one field at a time.
+                        meta_name = arc_name[:-4] + ".txt"
+                        zipf.writestr(meta_name, build_clip_metadata_text(
+                            c.get("title") or formatted_name,
+                            c.get("caption_suggestion", ""),
+                            c.get("hashtag_suggestion", ""),
+                        ))
             batch["zip_url"] = f"/api/download-batch-zip/{batch_id}"
         else:
             batch["zip_url"] = None
