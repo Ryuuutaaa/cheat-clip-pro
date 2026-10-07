@@ -429,8 +429,11 @@ def get_yt_dlp_base_cmd(include_cookies: bool = True) -> List[str]:
 
     # Prevent 'The page needs to be reloaded. Please try again later.'
     # by allowing yt-dlp to fall back from default/tv_downgraded to web_embedded and ios client APIs.
+    # Overridable so a session that keeps hitting bot checks can try other clients without a
+    # code change, e.g. YTDLP_PLAYER_CLIENTS=tv,web_safari
+    player_clients = (os.environ.get("YTDLP_PLAYER_CLIENTS") or "").strip() or "default,web_embedded,ios"
     cmd.extend([
-        "--extractor-args", "youtube:player_client=default,web_embedded,ios",
+        "--extractor-args", f"youtube:player_client={player_clients}",
         "--force-ipv4"
     ])
 
@@ -442,6 +445,34 @@ def get_yt_dlp_base_cmd(include_cookies: bool = True) -> List[str]:
                 logger.info(f"Using YouTube cookies from: {run_copy if run_copy != eff else eff}")
                 cmd.extend(["--cookies", str(run_copy)])
     return cmd
+
+
+def classify_ytdlp_failure(err_text: str) -> str:
+    """
+    Buckets a yt-dlp failure so the advice shown to the user matches the real cause:
+
+      cookies  — the saved YouTube session was rejected
+      bot      — YouTube is challenging the request (network/session reputation)
+      timeout  — the network gave up
+      other    — everything else; the raw error is surfaced instead
+
+    Matching is deliberately narrow. Generic words like "sign in" or "login" appear in
+    unrelated yt-dlp messages, and a false match tells the user to re-save cookies that
+    were never the problem.
+    """
+    err = (err_text or "").lower()
+    if "reloaded" in err or "reload" in err:
+        return "cookies"
+    if (
+        "confirm you're not a bot" in err
+        or "confirm you are not a bot" in err
+        or "sign in to confirm" in err
+        or "bot verification" in err
+    ):
+        return "bot"
+    if "timed out" in err or "timeout" in err:
+        return "timeout"
+    return "other"
 
 
 def is_valid_mp4(file_path: Union[str, Path], min_size: int = 10000) -> bool:
@@ -1030,7 +1061,7 @@ def download_clip_segment(
                 except Exception:
                     pass
             if res_480p and res_480p.stderr:
-                last_err_snippet = res_480p.stderr[:300]
+                last_err_snippet = res_480p.stderr[:800]
         except Exception as e:
             logger.warning(f"480p fallback failed ({mode_label}): {e}")
             if output_path.exists():
@@ -1051,12 +1082,14 @@ def download_clip_segment(
         except Exception:
             pass
 
-    err_lower = last_err_snippet.lower()
-    if "reloaded" in err_lower or "reload" in err_lower:
+    failure_kind = classify_ytdlp_failure(last_err_snippet)
+    logger.error(f"YouTube clip download failed ({failure_kind}): {last_err_snippet}")
+
+    if failure_kind == "cookies":
         raise RuntimeError("YouTube rejected the session cookies ('The page needs to be reloaded'). Your cookies.txt may have expired or need refreshing. Please re-export fresh cookies from an active YouTube tab using the 🍪 Cookies Manager button in the top navbar.")
-    if "confirm you're not a bot" in err_lower or "sign in" in err_lower or "login" in err_lower:
-        raise RuntimeError("YouTube blocked video download (Bot verification). Please import/save fresh YouTube cookies using the 🍪 Cookies Manager button in the top navbar.")
-    if "timed out" in err_lower or "timeout" in err_lower:
+    if failure_kind == "bot":
+        raise RuntimeError("YouTube asked for bot verification while downloading this video. If you already saved fresh cookies and this keeps happening, the block is aimed at this network/session: wait a few minutes and retry, or set PROXY_URL in backend/.env so requests leave from a different IP. Cookies can be re-saved from the 🍪 Cookies Manager button in the top navbar.")
+    if failure_kind == "timeout":
         raise RuntimeError("Video download timed out due to slow internet connection or lag. You can retry this clip anytime.")
     raise RuntimeError(f"Failed to download video clip segment from YouTube ({last_err_snippet}). Check your internet connection or cookies.")
 
