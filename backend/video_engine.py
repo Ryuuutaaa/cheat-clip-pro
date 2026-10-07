@@ -2678,6 +2678,10 @@ def detect_speaker_face_box(
     default_cy = 0.78 if is_streamer else 0.35
     default_res = {"found": False, "cx": default_cx, "cy": default_cy, "w": 0.22, "h": 0.25}
 
+    # Active speaker analysis runs when the framing choice asks for it, or when it is forced on
+    # globally through the environment.
+    wants_active_speaker = pos == "active_speaker" or active_speaker_detection_enabled()
+
     if not source_path or not os.path.exists(source_path):
         return default_res
 
@@ -2817,8 +2821,9 @@ def detect_speaker_face_box(
                     big_right = max(right_faces, key=lambda f: f["w"] * f["h"])
                     areas = sorted((big_left["w"] * big_left["h"], big_right["w"] * big_right["h"]))
                     if areas[0] >= 0.55 * areas[1]:
-                        # Only a real video can reveal who is talking; a still frame keeps the centre.
-                        if active_speaker_detection_enabled() and motion_source_path:
+                        # Only a real video can reveal who is talking; a still frame keeps the centre
+                        # but says so, so the UI can promise the decision will be made at render time.
+                        if wants_active_speaker and motion_source_path:
                             speaker = detect_active_speaker_track(str(motion_source_path))
                             if speaker:
                                 speaker["aspect"] = float(round(img_w / img_h, 4))
@@ -2828,6 +2833,7 @@ def detect_speaker_face_box(
                             "found": True,
                             "type": "multi_speaker",
                             "dual_speakers": True,
+                            "asd_pending": bool(wants_active_speaker),
                             "cx": float(round(mid_cx, 3)),
                             "cy": 0.35,
                             "w": 0.25,
@@ -2960,9 +2966,9 @@ def detect_speaker_face_box(
             left_speakers = [c for c in foreground_clusters if c["cx"] < 0.40 and len(c["pts"]) >= 3]
             right_speakers = [c for c in foreground_clusters if c["cx"] > 0.60 and len(c["pts"]) >= 3]
             if left_speakers and right_speakers:
-                # A two-shot: when the opt-in analyser is on, let the mouths and the soundtrack
-                # decide who is talking instead of assuming the frame is symmetric.
-                if active_speaker_detection_enabled():
+                # A two-shot: when the framing asks for it, let the mouths and the soundtrack decide
+                # who is talking instead of assuming the frame is symmetric.
+                if wants_active_speaker:
                     speaker = detect_active_speaker_track(str(source_path))
                     if speaker:
                         speaker["aspect"] = float(round(source_w / source_h, 4)) if source_h else None

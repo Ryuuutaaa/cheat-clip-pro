@@ -330,6 +330,8 @@ export const en = {
     faceTrackingDesc: "Auto-detects speaker faces or centers the visual action for non-facecam footage.",
     horizontalFramingLabel: "Horizontal Framing / Focal Point:",
     framingAuto: "🤖 AI Auto (Face & Object)",
+    framingActiveSpeaker: "🎤 Active Speaker",
+    aiSpeakerPending: "🎤 Speaker picked at render",
     aiFaceFocus: "👤 AI Face Focus",
     aiObjectFocus: "🎯 AI Object Focus",
     aiMultiSpeaker: "👥 2 Speakers — Centered",

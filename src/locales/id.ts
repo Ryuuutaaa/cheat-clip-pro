@@ -332,6 +332,8 @@ export const id: Translations = {
     faceTrackingDesc: "Deteksi otomatis wajah pembicara atau fokus aksi visual pada video non-facecam.",
     horizontalFramingLabel: "Fokus Framing Horizontal:",
     framingAuto: "🤖 AI Auto (Wajah & Objek)",
+    framingActiveSpeaker: "🎤 Pembicara Aktif",
+    aiSpeakerPending: "🎤 Pembicara dipilih saat render",
     aiFaceFocus: "👤 Fokus Wajah AI",
     aiObjectFocus: "🎯 Fokus Objek AI",
     aiMultiSpeaker: "👥 2 Pembicara — Ditengah",

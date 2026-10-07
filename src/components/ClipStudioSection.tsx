@@ -339,7 +339,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   }, [hookSfxEnabled, watermarkEnabled, originalAudioVolume, fileNamePrefix, fileNameSuffix, hardwareAccel, customClipTitles]);
 
   // Face & object detection tracking state
-  const [faceBox, setFaceBox] = useState<{ cx: number; cy: number; w: number; h: number; found: boolean; type?: string; aspect?: number }>({
+  const [faceBox, setFaceBox] = useState<{ cx: number; cy: number; w: number; h: number; found: boolean; type?: string; aspect?: number; asd_pending?: boolean }>({
     cx: 0.5,
     cy: 0.35,
     w: 0.25,
@@ -378,7 +378,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   // Each request is expensive on the server (it extracts a frame from the source video), so
   // results are cached per clip + framing and superseded requests are aborted rather than left
   // running — the preview used to fire the same request two or three times over.
-  const faceBoxCacheRef = useRef<Map<string, { cx: number; cy: number; w: number; h: number; found: boolean; type?: string; aspect?: number }>>(new Map());
+  const faceBoxCacheRef = useRef<Map<string, { cx: number; cy: number; w: number; h: number; found: boolean; type?: string; aspect?: number; asd_pending?: boolean }>>(new Map());
   const faceAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -1501,14 +1501,17 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 <div className="horizontal-framing-selector" style={{ marginTop: '0.65rem', paddingLeft: '1.6rem' }}>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                     <span>{t.studio.horizontalFramingLabel || 'Horizontal Framing / Focal Point:'}</span>
-                    {faceBox?.found && facecamPosition === 'auto' && (() => {
+                    {faceBox?.found && (facecamPosition === 'auto' || facecamPosition === 'active_speaker') && (() => {
                       // Three outcomes deserve different colours: a tracked face, a tracked object,
                       // and a two-shot where tracking either speaker would cut the other one out.
                       const isObject = faceBox.type === 'salient_object';
                       const isMulti = faceBox.type === 'multi_speaker';
                       const isActive = faceBox.type === 'active_speaker';
+                      const isPending = isMulti && faceBox.asd_pending === true;
                       const tone = isActive
                         ? { bg: 'rgba(168, 85, 247, 0.15)', fg: '#c084fc', border: 'rgba(168, 85, 247, 0.35)' }
+                        : isPending
+                        ? { bg: 'rgba(168, 85, 247, 0.10)', fg: '#c084fc', border: 'rgba(168, 85, 247, 0.25)' }
                         : isMulti
                         ? { bg: 'rgba(234, 179, 8, 0.15)', fg: '#facc15', border: 'rgba(234, 179, 8, 0.35)' }
                         : isObject
@@ -1525,6 +1528,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           fontWeight: 600
                         }}>
                           {isActive ? t.studio.aiActiveSpeaker
+                            : isPending ? t.studio.aiSpeakerPending
                             : isMulti ? t.studio.aiMultiSpeaker
                             : isObject ? t.studio.aiObjectFocus
                             : t.studio.aiFaceFocus}
@@ -1535,6 +1539,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <div className="pill-group framing-pills" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                     {[
                       { id: 'auto', label: t.studio.framingAuto || '🤖 AI Auto' },
+                      { id: 'active_speaker', label: t.studio.framingActiveSpeaker },
                       { id: 'center', label: t.studio.framingCenter || '🎯 Center (50%)' },
                       { id: 'left', label: t.studio.framingLeft || '⬅️ Left Focus (35%)' },
                       { id: 'right', label: t.studio.framingRight || '➡️ Right Focus (65%)' },
