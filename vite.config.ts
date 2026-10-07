@@ -28,7 +28,7 @@ export default defineConfig({
             if (res && !res.headersSent && typeof res.writeHead === 'function') {
               res.writeHead(503, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({
-                error: 'Backend API server on port 8000 is not running. Start the backend with `npm run dev` or `python -m uvicorn backend.main:app --port 8000`.',
+                error: `Backend API server on port ${BACKEND_PORT} is not running. Start the backend with \`./run.sh\` or \`python -m uvicorn backend.main:app --port ${BACKEND_PORT}\`.`,
                 status: 503
               }));
             }

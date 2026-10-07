@@ -160,11 +160,20 @@ async def save_youtube_cookies(request: Request):
 
 @router.get("/api/cookies")
 def get_youtube_cookies_status():
-    # Cookies can also come straight from a browser profile (YTDLP_COOKIES_FROM_BROWSER).
-    # Reporting "no cookies" in that setup would mislead the badge and the pre-render warning
-    # in the UI, so the source is reported explicitly.
+    # Cookies can also come straight from a browser profile (YTDLP_COOKIES_FROM_BROWSER), and
+    # that source wins when both exist — the download path checks it first. Reporting the file
+    # here would describe something the app is not actually using.
     browser_source = get_browser_cookies_source()
     eff = get_effective_cookies_path()
+    if browser_source:
+        return {
+            "exists": True,
+            "has_cookies": True,
+            "size": 0,
+            "sample_lines": [f"{browser_source} (browser profile)"],
+            "source": "browser",
+            "cookies_content": ""
+        }
     if eff and eff.exists():
         sample_lines = []
         try:
@@ -188,15 +197,6 @@ def get_youtube_cookies_status():
             "sample_lines": sample_lines,
             "source": "file",
             "cookies_content": ""  # Redacted to prevent credential exposure
-        }
-    if browser_source:
-        return {
-            "exists": True,
-            "has_cookies": True,
-            "size": 0,
-            "sample_lines": [f"{browser_source} (browser profile)"],
-            "source": "browser",
-            "cookies_content": ""
         }
     return {"exists": False, "has_cookies": False, "size": 0, "sample_lines": [], "source": "none", "cookies_content": ""}
 
