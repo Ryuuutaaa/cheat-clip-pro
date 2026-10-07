@@ -38,6 +38,7 @@ from backend.services.ai_usage_service import (
     record_ai_usage,
     reset_ai_usage,
 )
+from backend.routers.system import _origin_is_allowed
 from backend.services.gdrive_service import (
     download_google_drive_video,
     is_google_drive_url,
@@ -103,8 +104,10 @@ def ai_usage_endpoint():
 
 
 @router.post("/api/ai-usage/reset")
-def ai_usage_reset_endpoint():
+def ai_usage_reset_endpoint(request: Request):
     """Clears the in-memory and persisted AI usage counters."""
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
     reset_ai_usage()
     return get_ai_usage_summary()
 

@@ -417,17 +417,21 @@ def get_yt_dlp_base_cmd(include_cookies: bool = True) -> List[str]:
     return cmd
 
 
-def is_valid_mp4(file_path: Union[str, Path]) -> bool:
+def is_valid_mp4(file_path: Union[str, Path], min_size: int = 10000) -> bool:
     """
-    Checks if an MP4 file exists, is non-empty, and has a valid moov atom / container header
-    that FFmpeg or ffprobe can read without errors.
+    Checks that the file exists, is at least `min_size` bytes, and has a readable
+    container (moov atom / header) that ffmpeg or ffprobe can open.
+
+    `min_size` exists because the download/render paths want a cheap "this can't be a
+    real video" floor (default 10 KB), while upload validation must accept legitimately
+    small files (e.g. a 1-second test clip is only a few KB).
     """
     p = Path(file_path)
     if not p.exists():
         return False
     try:
         size = p.stat().st_size
-        if size < 10000:
+        if size < min_size:
             return False
     except Exception:
         return False

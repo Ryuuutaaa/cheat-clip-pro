@@ -100,7 +100,7 @@ async def upload_video(request: Request, file: UploadFile = File(...)):
 
         # Reject files whose container/streams are unreadable — otherwise the failure
         # only surfaces much later inside Whisper/ffmpeg with a cryptic message.
-        readable = await asyncio.to_thread(is_valid_mp4, save_path)
+        readable = await asyncio.to_thread(is_valid_mp4, save_path, 1024)
         has_video = readable and await asyncio.to_thread(has_video_stream, save_path)
         if not has_video:
             try:
