@@ -215,6 +215,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [previewClipIndex, setPreviewClipIndex] = useState<number>(0);
   // Tracks which clip's upload pack was just copied so the button can confirm it.
   const [copiedClipKey, setCopiedClipKey] = useState<string | null>(null);
+  // On-demand talking-detection for the preview: a YouTube source has no local video here, so the
+  // user asks for the analysis and a short section is fetched once per clip.
+  const [isAnalyzingSpeaker, setIsAnalyzingSpeaker] = useState(false);
+  const [speakerError, setSpeakerError] = useState<string | null>(null);
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>('9:16');
   const [backgroundStyle, setBackgroundStyle] = useState<BackgroundStyle>('black');
@@ -417,6 +421,30 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     fetchFace();
     return () => controller.abort();
   }, [videoId, previewClipIndex, clipStart, videoUrl, facecamPosition, streamerPreset]);
+
+  const analyzeSpeakerNow = async () => {
+    if (isAnalyzingSpeaker || !videoId) return;
+    setIsAnalyzingSpeaker(true);
+    setSpeakerError(null);
+    try {
+      // Same guard as the preview probe: a YouTube link that no longer matches the analysed video
+      // must not steer the analysis.
+      const ytMatch = (videoUrl || '').match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{11})/);
+      const urlForCall = ytMatch && ytMatch[1] !== videoId ? '' : (videoUrl || '');
+      const res = await fetch(`/api/analyze-speaker?video_id=${encodeURIComponent(videoId)}&timestamp=${clipStart}&video_url=${encodeURIComponent(urlForCall)}&facecam_position=active_speaker&streamer_preset=${encodeURIComponent(streamerPreset)}`);
+      const data = await res.json();
+      if (data && typeof data.cx === 'number') {
+        setFaceBox(data);
+        if (data.type !== 'active_speaker') {
+          setSpeakerError(data.reason === 'download_failed' ? t.studio.speakerDownloadBlocked : t.studio.speakerNoClear);
+        }
+      }
+    } catch {
+      setSpeakerError(t.studio.speakerDownloadBlocked);
+    } finally {
+      setIsAnalyzingSpeaker(false);
+    }
+  };
 
   // Calculate horizontal crop percentage (0 = leftmost edge, 50 = center, 100 = rightmost edge)
   const previewCropPercent = useMemo(() => {
@@ -1535,6 +1563,21 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         </span>
                       );
                     })()}
+                    {faceBox?.found && faceBox.asd_pending === true && (
+                      <button
+                        type="button"
+                        className="pill-btn"
+                        style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem' }}
+                        disabled={isAnalyzingSpeaker}
+                        onClick={analyzeSpeakerNow}
+                        title={t.studio.analyzeSpeakerHint}
+                      >
+                        {isAnalyzingSpeaker ? t.studio.analyzingSpeaker : t.studio.analyzeSpeakerBtn}
+                      </button>
+                    )}
+                    {speakerError && (
+                      <span style={{ fontSize: '0.68rem', color: '#f87171' }}>{speakerError}</span>
+                    )}
                   </div>
                   <div className="pill-group framing-pills" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                     {[

@@ -2,6 +2,8 @@ import asyncio
 import logging
 import os
 import re
+import threading
+import time
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -16,6 +18,7 @@ from backend.config import (
     UPLOADS_DIR,
     active_speaker_detection_enabled,
     detect_speaker_face_box,
+    download_clip_segment,
     extract_clip_frame,
     get_video_file_metadata,
     has_video_stream,
@@ -29,6 +32,9 @@ router = APIRouter(tags=["Media"])
 
 
 MAX_VIDEO_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024   # 4 GB
+# How much of a clip the on-demand speaker analysis fetches: the analyser only reads its first
+# seconds, so a short probe keeps the wait down.
+SPEAKER_PROBE_SECONDS = 6.0
 MAX_AUDIO_UPLOAD_BYTES = 100 * 1024 * 1024        # 100 MB
 MAX_SFX_UPLOAD_BYTES = 50 * 1024 * 1024           # 50 MB
 MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024         # 25 MB
@@ -423,6 +429,102 @@ async def get_clip_frame(video_id: str, timestamp: float = 0.0, video_url: Optio
     raise HTTPException(status_code=404, detail="Real video frame could not be extracted yet")
 
 
+# Talking-detection results, keyed by video + clip start. The studio preview asks for the same clip
+# repeatedly; without this every refresh would download and re-analyse the section.
+_SPEAKER_CACHE: dict = {}
+_SPEAKER_CACHE_LOCK = threading.Lock()
+_SPEAKER_CACHE_TTL_SEC = 1800
+
+
+def _speaker_cache_get(key: str):
+    with _SPEAKER_CACHE_LOCK:
+        entry = _SPEAKER_CACHE.get(key)
+        if not entry:
+            return None
+        if time.time() - entry[0] > _SPEAKER_CACHE_TTL_SEC:
+            _SPEAKER_CACHE.pop(key, None)
+            return None
+        return entry[1]
+
+
+def _speaker_cache_put(key: str, value: dict) -> None:
+    with _SPEAKER_CACHE_LOCK:
+        _SPEAKER_CACHE[key] = (time.time(), value)
+
+
+@router.get("/api/analyze-speaker")
+async def analyze_speaker(
+    video_id: str,
+    timestamp: float = 0.0,
+    video_url: Optional[str] = None,
+    facecam_position: Optional[str] = "auto",
+    streamer_preset: Optional[str] = "none"
+):
+    """
+    Runs the talking-detection on demand for one clip.
+
+    The studio preview only holds a single still frame for a YouTube source, which cannot reveal who
+    is speaking, so it asks for the analysis explicitly: a short section is fetched, analysed once,
+    and remembered. Local sources are analysed directly with no download.
+    """
+    start = max(0.0, float(timestamp))
+    cache_key = f"{video_id}|{int(start)}|{facecam_position}|{streamer_preset}"
+    cached = _speaker_cache_get(cache_key)
+    if cached:
+        return {**cached, "cached": True}
+
+    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', video_id)
+    motion_source = None
+    downloaded = None
+
+    clean_vurl = urllib.parse.unquote((video_url or "").strip())
+    if clean_vurl and is_within_media_dirs(clean_vurl) and os.path.exists(clean_vurl):
+        motion_source = clean_vurl
+    else:
+        for candidate in (list(UPLOADS_DIR.glob(f"*{safe_id}*.mp4")) + list(TEMP_DIR.glob(f"*{safe_id}*.mp4"))
+                          + list(EXPORTS_DIR.glob(f"*{safe_id}*.mp4"))):
+            if candidate.exists() and candidate.stat().st_size > 10000 and "slice_" not in candidate.name and is_valid_mp4(candidate):
+                motion_source = str(candidate)
+                break
+
+    if motion_source is None and clean_vurl:
+        # A short low-cost section is enough: the analyser only reads its first seconds.
+        probe_name = f"speakerprobe_{safe_id}_{int(start)}.mp4"
+        try:
+            downloaded = await asyncio.to_thread(
+                download_clip_segment, clean_vurl, start, start + SPEAKER_PROBE_SECONDS, probe_name
+            )
+            motion_source = downloaded
+        except Exception as e:
+            logger.warning(f"Speaker analysis could not fetch a section: {e}")
+            return {
+                "found": False,
+                "reason": "download_failed",
+                "message": str(e)[:300],
+                "cx": 0.5, "cy": 0.35, "w": 0.25, "h": 0.25
+            }
+
+    if motion_source is None:
+        return {"found": False, "reason": "no_source", "cx": 0.5, "cy": 0.35, "w": 0.25, "h": 0.25}
+
+    box = await asyncio.to_thread(
+        detect_speaker_face_box, motion_source, facecam_position or "auto", streamer_preset or "none", motion_source
+    )
+
+    if downloaded and os.path.exists(downloaded):
+        try:
+            os.remove(downloaded)
+        except Exception:
+            pass
+
+    if box.get("type") == "active_speaker":
+        _speaker_cache_put(cache_key, box)
+        box["cached"] = False
+        return box
+
+    return {**box, "reason": box.get("reason", "no_clear_speaker"), "cached": False}
+
+
 @router.get("/api/detect-face")
 async def detect_face(
     video_id: str,
@@ -458,7 +560,8 @@ async def detect_face(
             if clean_vurl and is_within_media_dirs(clean_vurl) and os.path.exists(clean_vurl):
                 motion_source = clean_vurl
             else:
-                for candidate in list(TEMP_DIR.glob(f"*{safe_id}*.mp4")) + list(EXPORTS_DIR.glob(f"*{safe_id}*.mp4")):
+                for candidate in (list(UPLOADS_DIR.glob(f"*{safe_id}*.mp4")) + list(TEMP_DIR.glob(f"*{safe_id}*.mp4"))
+                              + list(EXPORTS_DIR.glob(f"*{safe_id}*.mp4"))):
                     if candidate.exists() and candidate.stat().st_size > 10000 and "slice_" not in candidate.name and is_valid_mp4(candidate):
                         motion_source = str(candidate)
                         break
