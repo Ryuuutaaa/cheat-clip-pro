@@ -2974,7 +2974,13 @@ def build_ffmpeg_filtergraph(
         if 0.46 <= safe_cx <= 0.54:
             safe_cx = 0.50
         safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_11 = f"crop='min(iw,ih)':'min(iw,ih)':'max(0,min(iw-ih,iw*{safe_cx:.3f}-ih/2))':'(ih-min(iw,ih))/2',scale=1080:1080"
+        # Vertical framing follows the detected subject too: a portrait source leaves hundreds of
+        # pixels of slack here, and pinning that to the middle cut the face out of frame.
+        safe_cy = float(face_cy)
+        if 0.46 <= safe_cy <= 0.54:
+            safe_cy = 0.50
+        safe_cy = max(0.15, min(0.85, safe_cy))
+        crop_11 = f"crop='min(iw,ih)':'min(iw,ih)':'max(0,min(iw-ih,iw*{safe_cx:.3f}-ih/2))':'max(0,min(ih-min(iw,ih),ih*{safe_cy:.3f}-min(iw,ih)/2))',scale=1080:1080"
         if background_style == "blurred":
             filters.append(
                 f"[0:v]split=2[bg_raw][fg_raw];"
@@ -2994,7 +3000,11 @@ def build_ffmpeg_filtergraph(
         if 0.46 <= safe_cx <= 0.54:
             safe_cx = 0.50
         safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_43 = f"crop='min(iw,ih*4/3)':'min(ih,iw*3/4)':'max(0,min(iw-ih*4/3,iw*{safe_cx:.3f}-(ih*4/3)/2))':'(ih-min(ih,iw*3/4))/2',scale=1080:810"
+        safe_cy = float(face_cy)
+        if 0.46 <= safe_cy <= 0.54:
+            safe_cy = 0.50
+        safe_cy = max(0.15, min(0.85, safe_cy))
+        crop_43 = f"crop='min(iw,ih*4/3)':'min(ih,iw*3/4)':'max(0,min(iw-ih*4/3,iw*{safe_cx:.3f}-(ih*4/3)/2))':'max(0,min(ih-min(ih,iw*3/4),ih*{safe_cy:.3f}-min(ih,iw*3/4)/2))',scale=1080:810"
         if background_style == "blurred":
             filters.append(
                 f"[0:v]split=2[bg_raw][fg_raw];"
@@ -3014,7 +3024,11 @@ def build_ffmpeg_filtergraph(
         if 0.46 <= safe_cx <= 0.54:
             safe_cx = 0.50
         safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_169_land = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{safe_cx:.3f}-(ih*16/9)/2))':'(ih-min(ih,iw*9/16))/2',scale=1920:1080"
+        safe_cy = float(face_cy)
+        if 0.46 <= safe_cy <= 0.54:
+            safe_cy = 0.50
+        safe_cy = max(0.15, min(0.85, safe_cy))
+        crop_169_land = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{safe_cx:.3f}-(ih*16/9)/2))':'max(0,min(ih-min(ih,iw*9/16),ih*{safe_cy:.3f}-min(ih,iw*9/16)/2))',scale=1920:1080"
         filters.append(
             f"[0:v]{crop_169_land}[layout_base]"
         )
@@ -3026,7 +3040,11 @@ def build_ffmpeg_filtergraph(
         if 0.46 <= safe_cx <= 0.54:
             safe_cx = 0.50
         safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_169 = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{safe_cx:.3f}-(ih*16/9)/2))':'(ih-min(ih,iw*9/16))/2',scale=1080:608"
+        safe_cy = float(face_cy)
+        if 0.46 <= safe_cy <= 0.54:
+            safe_cy = 0.50
+        safe_cy = max(0.15, min(0.85, safe_cy))
+        crop_169 = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{safe_cx:.3f}-(ih*16/9)/2))':'max(0,min(ih-min(ih,iw*9/16),ih*{safe_cy:.3f}-min(ih,iw*9/16)/2))',scale=1080:608"
         if background_style == "blurred":
             filters.append(
                 f"[0:v]split=2[bg_raw][fg_raw];"
