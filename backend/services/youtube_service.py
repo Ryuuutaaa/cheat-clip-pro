@@ -16,7 +16,12 @@ from fastapi import HTTPException
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import JSONFormatter
 
-from backend.config import get_effective_cookies_path, logger
+from backend.config import (
+    get_effective_cookies_path,
+    get_browser_cookies_source,
+    get_ytdlp_player_clients,
+    logger,
+)
 from backend.utils.proxy import (
     TimeoutSession,
     _shared_cookie_jar,
@@ -194,10 +199,14 @@ def fetch_video_metadata(url: str, custom_proxy: Optional[str] = None):
             'proxy': attempt_proxy,
             'socket_timeout': 10
         }
-        eff_cookies = get_effective_cookies_path()
-        if eff_cookies:
-            ydl_opts['cookiefile'] = str(eff_cookies)
-        ydl_opts['extractor_args'] = {'youtube': {'player_client': ['default', 'web_embedded', 'ios']}}
+        browser_cookies = get_browser_cookies_source()
+        if browser_cookies:
+            ydl_opts['cookiesfrombrowser'] = (browser_cookies,)
+        else:
+            eff_cookies = get_effective_cookies_path()
+            if eff_cookies:
+                ydl_opts['cookiefile'] = str(eff_cookies)
+        ydl_opts['extractor_args'] = {'youtube': {'player_client': get_ytdlp_player_clients()}}
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -453,10 +462,14 @@ def fetch_transcript_ytdlp(video_id: str, proxy: Optional[str] = None) -> List[d
         'proxy': proxy,
         'socket_timeout': 10
     }
-    eff_cookies = get_effective_cookies_path()
-    if eff_cookies:
-        ydl_opts['cookiefile'] = str(eff_cookies)
-    ydl_opts['extractor_args'] = {'youtube': {'player_client': ['default', 'web_embedded', 'ios']}}
+    browser_cookies = get_browser_cookies_source()
+    if browser_cookies:
+        ydl_opts['cookiesfrombrowser'] = (browser_cookies,)
+    else:
+        eff_cookies = get_effective_cookies_path()
+        if eff_cookies:
+            ydl_opts['cookiefile'] = str(eff_cookies)
+    ydl_opts['extractor_args'] = {'youtube': {'player_client': get_ytdlp_player_clients()}}
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

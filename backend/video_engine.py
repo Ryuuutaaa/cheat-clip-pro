@@ -32,6 +32,32 @@ def get_effective_cookies_path() -> Optional[Path]:
         return ROOT_COOKIES_PATH
     return None
 
+
+def get_browser_cookies_source() -> Optional[str]:
+    """
+    Optional override that lets yt-dlp read cookies straight from a browser profile.
+
+    An exported cookies.txt can be refused by YouTube's bot check even when it looks complete,
+    while the live browser profile still works — measured on the same machine and session, the
+    exported file was rejected with "The page needs to be reloaded" and
+    `--cookies-from-browser brave` downloaded the same section fine.
+
+    Set YTDLP_COOKIES_FROM_BROWSER=brave|chrome|firefox|edge|... in backend/.env
+    """
+    browser = (os.environ.get("YTDLP_COOKIES_FROM_BROWSER") or "").strip()
+    return browser or None
+
+
+def has_youtube_cookies() -> bool:
+    """True when either an exported cookies file or a browser profile can supply cookies."""
+    return get_effective_cookies_path() is not None or get_browser_cookies_source() is not None
+
+
+def get_ytdlp_player_clients() -> List[str]:
+    """YouTube inner APIs yt-dlp may try, in order. Overridable via YTDLP_PLAYER_CLIENTS."""
+    raw = (os.environ.get("YTDLP_PLAYER_CLIENTS") or "").strip() or "default,web_embedded,ios"
+    return [client.strip() for client in raw.split(",") if client.strip()]
+
 CASCADE_PATH = BASE_DIR / "haarcascade_frontalface_default.xml"
 CASCADES_DIR = BASE_DIR / "cascades"
 YUNET_MODEL_PATH = CASCADES_DIR / "face_detection_yunet.onnx"
@@ -358,7 +384,10 @@ def format_section_time(seconds: float) -> str:
 
 
 def get_yt_dlp_cookies_args() -> List[str]:
-    """Returns yt-dlp cookies arguments if cookies.txt exists and is non-empty."""
+    """Returns yt-dlp cookies arguments, preferring a browser profile when one is configured."""
+    browser = get_browser_cookies_source()
+    if browser:
+        return ["--cookies-from-browser", browser]
     eff = get_effective_cookies_path()
     if eff:
         return ["--cookies", str(eff)]
@@ -431,19 +460,29 @@ def get_yt_dlp_base_cmd(include_cookies: bool = True) -> List[str]:
     # by allowing yt-dlp to fall back from default/tv_downgraded to web_embedded and ios client APIs.
     # Overridable so a session that keeps hitting bot checks can try other clients without a
     # code change, e.g. YTDLP_PLAYER_CLIENTS=tv,web_safari
-    player_clients = (os.environ.get("YTDLP_PLAYER_CLIENTS") or "").strip() or "default,web_embedded,ios"
     cmd.extend([
-        "--extractor-args", f"youtube:player_client={player_clients}",
-        "--force-ipv4"
+        "--extractor-args", f"youtube:player_client={','.join(get_ytdlp_player_clients())}"
     ])
 
+    # Forcing IPv4 is opt-in: on networks whose IPv4 address is challenged by YouTube it turns a
+    # working download into "Sign in to confirm you're not a bot". Measured on one machine, same
+    # cookies and same video: with --force-ipv4 every attempt failed, without it the section
+    # downloaded fine. Set YTDLP_FORCE_IPV4=1 when IPv6 routing is broken instead.
+    if (os.environ.get("YTDLP_FORCE_IPV4") or "").strip().lower() in ("1", "true", "yes"):
+        cmd.append("--force-ipv4")
+
     if include_cookies:
-        eff = get_effective_cookies_path()
-        if eff:
-            run_copy = _get_ytdlp_cookies_copy(eff)
-            if run_copy:
-                logger.info(f"Using YouTube cookies from: {run_copy if run_copy != eff else eff}")
-                cmd.extend(["--cookies", str(run_copy)])
+        browser = get_browser_cookies_source()
+        if browser:
+            logger.info(f"Using YouTube cookies from the {browser} browser profile")
+            cmd.extend(["--cookies-from-browser", browser])
+        else:
+            eff = get_effective_cookies_path()
+            if eff:
+                run_copy = _get_ytdlp_cookies_copy(eff)
+                if run_copy:
+                    logger.info(f"Using YouTube cookies from: {run_copy if run_copy != eff else eff}")
+                    cmd.extend(["--cookies", str(run_copy)])
     return cmd
 
 
@@ -869,7 +908,7 @@ def download_clip_segment(
     # Allows fast fallback instead of stalling for 5+ minutes when user internet lags.
     timeout_sec = min(180, max(60, int(clip_duration * 3) + 40))
 
-    has_cookies = get_effective_cookies_path() is not None
+    has_cookies = has_youtube_cookies()
     # If cookies are present, try with cookies first; if rejected by YouTube (or any reload/bot error), try guest mode.
     attempts = [True, False] if has_cookies else [False]
     last_err_snippet = "unknown"
@@ -1124,7 +1163,7 @@ def download_full_raw_video(video_url: str, output_path: str, progress_callback=
 
     _throttle_remote_download()
 
-    has_cookies = get_effective_cookies_path() is not None
+    has_cookies = has_youtube_cookies()
     attempts = [True, False] if has_cookies else [False]
 
     for use_cookies in attempts:

@@ -9,6 +9,7 @@ from backend.config import (
     COOKIES_PATH,
     ROOT_COOKIES_PATH,
     get_effective_cookies_path,
+    get_browser_cookies_source,
     logger,
 )
 from backend.routers.system import _origin_is_allowed
@@ -159,6 +160,10 @@ async def save_youtube_cookies(request: Request):
 
 @router.get("/api/cookies")
 def get_youtube_cookies_status():
+    # Cookies can also come straight from a browser profile (YTDLP_COOKIES_FROM_BROWSER).
+    # Reporting "no cookies" in that setup would mislead the badge and the pre-render warning
+    # in the UI, so the source is reported explicitly.
+    browser_source = get_browser_cookies_source()
     eff = get_effective_cookies_path()
     if eff and eff.exists():
         sample_lines = []
@@ -181,9 +186,19 @@ def get_youtube_cookies_status():
             "has_cookies": True,
             "size": eff.stat().st_size,
             "sample_lines": sample_lines,
+            "source": "file",
             "cookies_content": ""  # Redacted to prevent credential exposure
         }
-    return {"exists": False, "has_cookies": False, "size": 0, "sample_lines": [], "cookies_content": ""}
+    if browser_source:
+        return {
+            "exists": True,
+            "has_cookies": True,
+            "size": 0,
+            "sample_lines": [f"{browser_source} (browser profile)"],
+            "source": "browser",
+            "cookies_content": ""
+        }
+    return {"exists": False, "has_cookies": False, "size": 0, "sample_lines": [], "source": "none", "cookies_content": ""}
 
 
 @router.delete("/api/cookies")
