@@ -883,6 +883,20 @@ h1, h2, h3, h4 {
   white-space: nowrap;
 }
 
+/* Hashtags inside the always-visible clip checklist, so they are readable at list density */
+.batch-clip-hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.2rem;
+}
+
+.batch-clip-hashtags .hashtag-chip {
+  font-size: 0.66rem;
+  padding: 0.05rem 0.4rem;
+  margin: 0;
+}
+
 .timestamp-pill {
   display: inline-flex;
   align-items: center;

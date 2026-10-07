@@ -3046,8 +3046,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             </div>
           </div>
 
-          {/* Batch Clip Hook / Title Customizer for All Selected Clips */}
-          <div className="studio-card-group studio-card-advanced">
+          {/* Batch Clip Hook / Title Customizer for All Selected Clips.
+              Not an advanced setting: this card holds the per-clip title and hashtags that get
+              rendered and uploaded, so it stays visible. */}
+          <div className="studio-card-group">
             <div className="group-header">
               <span className="group-title">{t.studio.batchClipTitlesTitle}</span>
               <span className="group-badge">
@@ -3241,6 +3243,13 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         {Math.floor(clip.end_time / 60)}:{(clip.end_time % 60).toFixed(0).padStart(2, '0')} (
                         {(clip.end_time - clip.start_time).toFixed(0)}s) · Score: {clip.virality_score}%
                       </span>
+                      {clip.hashtag_suggestion && (
+                        <span className="batch-clip-hashtags">
+                          {clip.hashtag_suggestion.toLowerCase().split(/\s+/).filter(Boolean).map((tag, tagIdx) => (
+                            <span key={tagIdx} className="hashtag-chip">{tag}</span>
+                          ))}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
