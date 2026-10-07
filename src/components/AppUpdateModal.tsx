@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../locales';
+import { useModalDismiss } from '../utils/useModalDismiss';
 
 export interface VersionInfo {
   current_commit: string;
@@ -22,6 +23,9 @@ interface AppUpdateModalProps {
 
 export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose }) => {
   const { t } = useLanguage();
+
+  useModalDismiss(isOpen, onClose);
+
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [isChecking, setIsChecking] = useState<boolean>(false);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
@@ -209,6 +213,9 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose 
     >
       <div
         className="glass-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.updateModal.title}
         style={{
           width: '100%',
           maxWidth: '540px',

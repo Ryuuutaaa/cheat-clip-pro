@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLanguage } from '../locales';
 import type { ViralClip, TranscriptLine } from '../types';
+import { useModalDismiss } from '../utils/useModalDismiss';
 
 interface ClipTrimmerModalProps {
   isOpen: boolean;
@@ -58,6 +59,8 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
   onDownload,
 }) => {
   const { t } = useLanguage();
+
+  useModalDismiss(isOpen, onClose);
 
   const isDirectVideo = Boolean(
     sourceType === 'gdrive' ||
@@ -589,6 +592,9 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
       <div
         className="studio-modal-card clip-trimmer-modal"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.trimmer.modalTitle}
         style={{
           width: '100%',
           maxWidth: '1020px',
@@ -695,7 +701,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1.2s linear infinite' }}>
                         <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="8"></circle>
                       </svg>
-                      <span>Loading preview player...</span>
+                      <span>{t.trimmer.loadingPreview}</span>
                     </div>
                   </div>
                 )}
@@ -1399,7 +1405,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
                   <span style={{ fontSize: '0.82rem' }}>📜</span>
                   <strong style={{ fontSize: '0.8rem', color: '#fff' }}>{t.trimmer.transcriptTitle}</strong>
                   <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
-                    ({relevantTranscript.length} lines in ±2m context)
+                    ({t.trimmer.transcriptLineCount(relevantTranscript.length)})
                   </span>
                 </div>
                 <button
@@ -1407,7 +1413,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
                   onClick={() => setShowTranscript(prev => !prev)}
                   style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.72rem', textDecoration: 'underline' }}
                 >
-                  {showTranscript ? 'Hide ▲' : 'Show ▼'}
+                  {showTranscript ? t.trimmer.hideTranscript : t.trimmer.showTranscript}
                 </button>
               </div>
 

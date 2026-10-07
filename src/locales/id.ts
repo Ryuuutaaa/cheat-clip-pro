@@ -52,7 +52,7 @@ export const id: Translations = {
     aiModelLabel: "Pilihan Model AI",
     fetchingModels: "Mengambil daftar model...",
     resilienceTip: "Ketahanan Kuota Gratis:",
-    resilienceDesc: "Jika model mencapai batas kuota atau error, Cheat Clip Pro secara dinamis mencoba seluruh model Flash baru maupun lama (3.x, 2.5, 2.0, 1.5) dari API key Anda hingga klip berhasil ditemukan!",
+    resilienceDesc: "Jika model mencapai batas kuota atau error, Cheat Clip Pro secara dinamis mencoba model Flash yang lebih baru maupun lama dari API key Anda hingga klip berhasil ditemukan!",
 
     // Customization
     clipCustomizationTitle: "Kustomisasi Klip",
@@ -657,6 +657,10 @@ export const id: Translations = {
     clipTitleLabel: "Judul Klip / Nama File:",
     contextLimit: "Batas Konteks ±2 menit",
     titlePlaceholder: "Judul klip",
+    loadingPreview: "Memuat pemutar pratinjau...",
+    hideTranscript: "Sembunyikan ▲",
+    showTranscript: "Tampilkan ▼",
+    transcriptLineCount: (count: number) => `${count} baris dalam konteks ±2 menit`,
   },
   updateModal: {
     title: "Pembaruan Cheat Clip PRO",
