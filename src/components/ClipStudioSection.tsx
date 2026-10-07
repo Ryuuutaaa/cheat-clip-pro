@@ -1506,7 +1506,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       // and a two-shot where tracking either speaker would cut the other one out.
                       const isObject = faceBox.type === 'salient_object';
                       const isMulti = faceBox.type === 'multi_speaker';
-                      const tone = isMulti
+                      const isActive = faceBox.type === 'active_speaker';
+                      const tone = isActive
+                        ? { bg: 'rgba(168, 85, 247, 0.15)', fg: '#c084fc', border: 'rgba(168, 85, 247, 0.35)' }
+                        : isMulti
                         ? { bg: 'rgba(234, 179, 8, 0.15)', fg: '#facc15', border: 'rgba(234, 179, 8, 0.35)' }
                         : isObject
                         ? { bg: 'rgba(56, 189, 248, 0.15)', fg: '#38bdf8', border: 'rgba(56, 189, 248, 0.3)' }
@@ -1521,7 +1524,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           border: `1px solid ${tone.border}`,
                           fontWeight: 600
                         }}>
-                          {isMulti ? t.studio.aiMultiSpeaker : isObject ? t.studio.aiObjectFocus : t.studio.aiFaceFocus}
+                          {isActive ? t.studio.aiActiveSpeaker
+                            : isMulti ? t.studio.aiMultiSpeaker
+                            : isObject ? t.studio.aiObjectFocus
+                            : t.studio.aiFaceFocus}
                         </span>
                       );
                     })()}

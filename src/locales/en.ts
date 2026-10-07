@@ -333,6 +333,7 @@ export const en = {
     aiFaceFocus: "👤 AI Face Focus",
     aiObjectFocus: "🎯 AI Object Focus",
     aiMultiSpeaker: "👥 2 Speakers — Centered",
+    aiActiveSpeaker: "🎤 Active Speaker",
     framingCenter: "🎯 Center (50%)",
     framingLeft: "⬅️ Left Focus (35%)",
     framingRight: "➡️ Right Focus (65%)",

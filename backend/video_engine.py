@@ -2403,10 +2403,246 @@ def detect_video_saliency_and_motion_center(sampled_small_frames: List[Any]) -> 
     return 0.50, 0.35
 
 
+# ── Active speaker detection ─────────────────────────────────────────────────
+# Deciding *who* talks in a two-shot cannot be done from one frame: both faces sit still and only
+# one mouth moves. These settings shape a short consecutive-frame analysis whose mouth-motion signal
+# is correlated with the audio envelope. Opt-in because it changes framing.
+ACTIVE_SPEAKER_SAMPLE_FPS = 5.0
+ACTIVE_SPEAKER_WINDOW_SEC = 8.0
+ACTIVE_SPEAKER_TRACK_DIST = 0.15
+ACTIVE_SPEAKER_MIN_MOTION = 0.6     # mean abs pixel diff in the mouth region (0-255 scale)
+ACTIVE_SPEAKER_WIN_MARGIN = 1.25    # the winner must beat the runner-up by this factor
+ACTIVE_SPEAKER_MIN_SAMPLES = 6      # fewer motion samples than this cannot be scored
+
+
+def active_speaker_detection_enabled() -> bool:
+    """Opt-in switch; off unless ACTIVE_SPEAKER_DETECTION is truthy in the environment."""
+    return (os.environ.get("ACTIVE_SPEAKER_DETECTION") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _create_yunet_detector():
+    """Loads the YuNet face model, or None when no model file is present."""
+    import cv2
+    for cand in [YUNET_MODEL_PATH, BASE_DIR / "face_detection_yunet.onnx", BASE_DIR / "cascades" / "face_detection_yunet.onnx"]:
+        if cand.exists():
+            try:
+                return cv2.FaceDetectorYN.create(str(cand), "", (320, 320), 0.65, 0.3, 5000)
+            except Exception as e:
+                logger.warning(f"YuNet initialization failed: {e}")
+                return None
+    return None
+
+
+def _mouth_region(gray, box) -> Optional[Any]:
+    """Lower-middle slice of a face box, normalised to a fixed size so small drifts are ignored."""
+    import cv2
+    x, y, w, h = int(box["x"]), int(box["y"]), int(box["bw"]), int(box["bh"])
+    my = y + int(h * 0.60)
+    mx = x + int(w * 0.20)
+    mh = max(4, y + h - my)
+    mw = max(4, int(w * 0.60))
+    ih, iw = gray.shape[:2]
+    x0, y0 = max(0, mx), max(0, my)
+    x1, y1 = min(iw, mx + mw), min(ih, my + mh)
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    return cv2.resize(gray[y0:y1, x0:x1], (48, 32))
+
+
+def _audio_envelope(video_path: str, start_sec: float, duration_sec: float, samples: int) -> List[float]:
+    """RMS of the soundtrack over the analysed window, one value per motion sample."""
+    import numpy as np
+    if samples <= 0:
+        return []
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-ss", f"{max(0.0, start_sec):.3f}", "-t", f"{max(0.1, duration_sec):.3f}",
+         "-i", str(video_path), "-f", "s16le", "-ac", "1", "-ar", "8000", "-"],
+        capture_output=True, timeout=90,
+    )
+    audio = np.frombuffer(raw.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+    if audio.size < samples:
+        return []
+    win = max(1, audio.size // samples)
+    return [float(np.sqrt(np.mean(audio[i * win:(i + 1) * win] ** 2))) for i in range(samples)]
+
+
+def _pick_loudest_window(video_path: str, duration: float, window_sec: float) -> float:
+    """Start time of the busiest stretch of speech, so the analysis looks where talking happens."""
+    try:
+        if duration <= window_sec * 1.2:
+            return 0.0
+        points = compute_audio_energy_heatmap(video_path, duration, num_points=40)
+        if not points:
+            return 0.0
+        span = max(1, int(round(len(points) * (window_sec / duration))))
+        best_i, best_val = 0, -1.0
+        for i in range(0, max(1, len(points) - span + 1)):
+            val = sum(p.get("value", 0.0) for p in points[i:i + span]) / span
+            if val > best_val:
+                best_i, best_val = i, val
+        return max(0.0, min(duration - window_sec, (best_i / len(points)) * duration))
+    except Exception:
+        return 0.0
+
+
+def detect_active_speaker_track(video_path: str) -> Optional[Dict[str, Any]]:
+    """
+    Works out which face in a two-shot is doing the talking, or returns None when unclear.
+
+    Position cannot answer this — in an interview both faces are still while one mouth moves. Lip
+    movement lasts tenths of a second, so frames are read consecutively at ACTIVE_SPEAKER_SAMPLE_FPS
+    instead of the ~0.8s spread used for face position; each face is tracked across frames, its
+    mouth-region motion is measured between consecutive frames and correlated with the audio
+    envelope, because a speaker's mouth moves while the soundtrack carries speech energy.
+
+    Returning None whenever nobody clearly wins is deliberate: callers then keep the centred crop,
+    which is the safe framing for a wide two-shot.
+    """
+    try:
+        import cv2
+        import numpy as np
+
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            return None
+        src_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        duration = total / src_fps if src_fps else 0.0
+        if total < int(src_fps * 1.5) or duration < 1.5:
+            cap.release()
+            return None
+
+        detector = _create_yunet_detector()
+        if detector is None:
+            cap.release()
+            return None
+
+        step = max(1, int(round(src_fps / ACTIVE_SPEAKER_SAMPLE_FPS)))
+        window_sec = min(ACTIVE_SPEAKER_WINDOW_SEC, duration)
+        start_sec = _pick_loudest_window(str(video_path), duration, window_sec)
+        window_frames = int(min(total - int(start_sec * src_fps), window_sec * src_fps))
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(start_sec * src_fps))
+        tracks: List[Dict[str, Any]] = []
+        prev_gray = None
+        envelope_slots = 0
+        read = 0
+        while read < window_frames:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            read += 1
+            if (read - 1) % step:
+                continue
+
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            fh, fw = gray.shape[:2]
+            scale = min(1.0, 640.0 / max(fh, fw))
+            small = cv2.resize(gray, None, fx=scale, fy=scale) if scale < 1.0 else gray
+            sh, sw = small.shape[:2]
+            detector.setInputSize((sw, sh))
+            result = detector.detect(cv2.cvtColor(small, cv2.COLOR_GRAY2BGR))
+
+            faces = []
+            if result[1] is not None:
+                for f in result[1]:
+                    bx, by, bw, bh = [float(v) / scale for v in f[0:4]]
+                    if bw < fw * 0.03 or bh < fh * 0.03:
+                        continue
+                    faces.append({
+                        "x": bx, "y": by, "bw": bw, "bh": bh,
+                        "cx": (bx + bw / 2.0) / fw, "cy": (by + bh / 2.0) / fh,
+                        "w": bw / fw, "h": bh / fh,
+                    })
+
+            for face in faces:
+                match, best_d = None, ACTIVE_SPEAKER_TRACK_DIST
+                for t in tracks:
+                    d = ((t["cx"] - face["cx"]) ** 2 + (t["cy"] - face["cy"]) ** 2) ** 0.5
+                    if d < best_d:
+                        match, best_d = t, d
+                if match is None:
+                    tracks.append({**{k: face[k] for k in ("cx", "cy", "w", "h")},
+                                   "box": face, "motion": [], "hits": 1})
+                    continue
+
+                if prev_gray is not None and match.get("box") is not None:
+                    # Both regions come from the SAME box: a detector whose box drifts by a pixel
+                    # would otherwise register as mouth movement on a completely still face.
+                    before = _mouth_region(prev_gray, match["box"])
+                    after = _mouth_region(gray, match["box"])
+                    if before is not None and after is not None:
+                        match["motion"].append(float(np.mean(cv2.absdiff(before, after))))
+                alpha = 0.6
+                for key in ("cx", "cy", "w", "h"):
+                    match[key] = alpha * match[key] + (1 - alpha) * face[key]
+                match["box"] = face
+                match["hits"] += 1
+
+            envelope_slots += 1
+            prev_gray = gray
+
+        cap.release()
+
+        candidates = [t for t in tracks if len(t["motion"]) >= ACTIVE_SPEAKER_MIN_SAMPLES]
+        if len(candidates) < 2:
+            return None
+
+        envelope = _audio_envelope(str(video_path), start_sec, window_sec,
+                                   max(len(t["motion"]) for t in candidates))
+        if len(envelope) < ACTIVE_SPEAKER_MIN_SAMPLES:
+            return None
+
+        scored = []
+        peak_motion = max(1e-6, max(float(np.mean(t["motion"])) for t in candidates))
+        for track in candidates:
+            motion = np.array(track["motion"], dtype=np.float32)
+            n = min(len(motion), len(envelope))
+            corr = 0.0
+            if n >= ACTIVE_SPEAKER_MIN_SAMPLES and float(np.std(motion[:n])) > 1e-6:
+                corr = float(np.corrcoef(motion[:n], np.array(envelope[:n], dtype=np.float32))[0, 1])
+                if not np.isfinite(corr):
+                    corr = 0.0
+            energy = float(np.mean(motion)) / peak_motion
+            track["score"] = max(0.0, corr) * 0.5 + energy * 0.5
+            scored.append(track)
+
+        scored.sort(key=lambda t: t["score"], reverse=True)
+        winner, runner = scored[0], scored[1]
+        if float(np.mean(winner["motion"])) < ACTIVE_SPEAKER_MIN_MOTION:
+            logger.info("Active speaker: nobody is clearly talking (all mouths still) — keeping centre")
+            return None
+        if runner["score"] * ACTIVE_SPEAKER_WIN_MARGIN > winner["score"]:
+            logger.info(f"Active speaker: two speakers are equally active "
+                        f"({winner['score']:.2f} vs {runner['score']:.2f}) — keeping centre")
+            return None
+
+        final_cx = float(winner["cx"])
+        if 0.45 <= final_cx <= 0.55:
+            final_cx = 0.50
+        final_cx = max(0.24, min(0.76, final_cx))
+        logger.info(f"Active speaker selected: cx={final_cx:.3f} (score {winner['score']:.2f} vs "
+                    f"{runner['score']:.2f}, motion {float(np.mean(winner['motion'])):.2f})")
+        return {
+            "found": True,
+            "type": "active_speaker",
+            "cx": float(round(final_cx, 3)),
+            "cy": float(round(winner["cy"], 3)),
+            "w": float(round(winner["w"], 3)),
+            "h": float(round(winner["h"], 3)),
+            "speaker_confidence": float(round(winner["score"], 3)),
+            "aspect": None,
+        }
+    except Exception as e:
+        logger.debug(f"Active speaker detection skipped: {e}")
+        return None
+
+
 def detect_speaker_face_box(
     source_path: str,
     facecam_position: str = "auto",
-    streamer_preset: str = "none"
+    streamer_preset: str = "none",
+    motion_source_path: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Detects speaker face or non-facecam salient action/object bounding box.
@@ -2453,25 +2689,7 @@ def detect_speaker_face_box(
         is_image = ext in [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
 
         # 1. Initialize YuNet Deep Neural Network detector if model file is available
-        yunet_detector = None
-        target_model = None
-        for cand in [YUNET_MODEL_PATH, BASE_DIR / "face_detection_yunet.onnx", BASE_DIR / "cascades" / "face_detection_yunet.onnx"]:
-            if cand.exists():
-                target_model = cand
-                break
-        if target_model:
-            try:
-                yunet_detector = cv2.FaceDetectorYN.create(
-                    str(target_model),
-                    "",
-                    (320, 320),
-                    0.65,  # score_threshold: strict enough to reject walls and noise
-                    0.3,   # nms_threshold
-                    5000
-                )
-            except Exception as e:
-                logger.warning(f"YuNet initialization failed: {e}")
-                yunet_detector = None
+        yunet_detector = _create_yunet_detector()
 
         # 2. Prepare Haar Cascades fallback ensemble
         cascades = []
@@ -2599,6 +2817,12 @@ def detect_speaker_face_box(
                     big_right = max(right_faces, key=lambda f: f["w"] * f["h"])
                     areas = sorted((big_left["w"] * big_left["h"], big_right["w"] * big_right["h"]))
                     if areas[0] >= 0.55 * areas[1]:
+                        # Only a real video can reveal who is talking; a still frame keeps the centre.
+                        if active_speaker_detection_enabled() and motion_source_path:
+                            speaker = detect_active_speaker_track(str(motion_source_path))
+                            if speaker:
+                                speaker["aspect"] = float(round(img_w / img_h, 4))
+                                return speaker
                         mid_cx = (big_left["cx"] + big_right["cx"]) / 2.0
                         return {
                             "found": True,
@@ -2736,6 +2960,13 @@ def detect_speaker_face_box(
             left_speakers = [c for c in foreground_clusters if c["cx"] < 0.40 and len(c["pts"]) >= 3]
             right_speakers = [c for c in foreground_clusters if c["cx"] > 0.60 and len(c["pts"]) >= 3]
             if left_speakers and right_speakers:
+                # A two-shot: when the opt-in analyser is on, let the mouths and the soundtrack
+                # decide who is talking instead of assuming the frame is symmetric.
+                if active_speaker_detection_enabled():
+                    speaker = detect_active_speaker_track(str(source_path))
+                    if speaker:
+                        speaker["aspect"] = float(round(source_w / source_h, 4)) if source_h else None
+                        return speaker
                 mid_cx = (max(left_speakers, key=lambda c: len(c["pts"]))["cx"] + max(right_speakers, key=lambda c: len(c["pts"]))["cx"]) / 2.0
                 return {"found": True, "cx": float(round(mid_cx, 3)), "cy": 0.35, "w": 0.25, "h": 0.25, "dual_speakers": True,
                         "aspect": float(round(source_w / source_h, 4)) if source_h else None}

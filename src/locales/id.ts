@@ -335,6 +335,7 @@ export const id: Translations = {
     aiFaceFocus: "👤 Fokus Wajah AI",
     aiObjectFocus: "🎯 Fokus Objek AI",
     aiMultiSpeaker: "👥 2 Pembicara — Ditengah",
+    aiActiveSpeaker: "🎤 Pembicara Aktif",
     framingCenter: "🎯 Tengah (50%)",
     framingLeft: "⬅️ Fokus Kiri (35%)",
     framingRight: "➡️ Fokus Kanan (65%)",

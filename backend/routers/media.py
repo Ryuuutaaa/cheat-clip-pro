@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import urllib.parse
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -13,11 +14,13 @@ from backend.config import (
     EXPORTS_DIR,
     TEMP_DIR,
     UPLOADS_DIR,
+    active_speaker_detection_enabled,
     detect_speaker_face_box,
     extract_clip_frame,
     get_video_file_metadata,
     has_video_stream,
     is_valid_mp4,
+    is_within_media_dirs,
     logger,
 )
 from backend.routers.system import _origin_is_allowed
@@ -444,6 +447,22 @@ async def detect_face(
         "frame_url": f"/api/clip-frame?video_id={video_id}&timestamp={timestamp}"
     }
     try:
+        safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', video_id)
+
+        # A local copy of the video (upload, Drive cache, downloaded slice) lets the preview run the
+        # same talking-detection the renderer will. YouTube sources have no local file at this point,
+        # so they keep the centred framing until render time.
+        motion_source = None
+        if active_speaker_detection_enabled():
+            clean_vurl = urllib.parse.unquote((video_url or "").strip())
+            if clean_vurl and is_within_media_dirs(clean_vurl) and os.path.exists(clean_vurl):
+                motion_source = clean_vurl
+            else:
+                for candidate in list(TEMP_DIR.glob(f"*{safe_id}*.mp4")) + list(EXPORTS_DIR.glob(f"*{safe_id}*.mp4")):
+                    if candidate.exists() and candidate.stat().st_size > 10000 and "slice_" not in candidate.name and is_valid_mp4(candidate):
+                        motion_source = str(candidate)
+                        break
+
         # First try to extract or get the cached frame
         frame_path = await asyncio.to_thread(extract_clip_frame, video_url or "", video_id, timestamp)
         if frame_path and os.path.exists(frame_path):
@@ -451,13 +470,13 @@ async def detect_face(
                 detect_speaker_face_box,
                 frame_path,
                 facecam_position or "auto",
-                streamer_preset or "none"
+                streamer_preset or "none",
+                motion_source
             )
             box["frame_url"] = f"/api/clip-frame?video_id={video_id}&timestamp={timestamp}"
             return box
 
         # If frame extract didn't complete, check local candidates
-        safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', video_id)
         local_candidates = list(TEMP_DIR.glob(f"*{safe_id}*.mp4")) + list(EXPORTS_DIR.glob(f"*{safe_id}*.mp4"))
         for candidate in local_candidates:
             if candidate.exists() and candidate.stat().st_size > 10000 and "slice_" not in candidate.name and is_valid_mp4(candidate):
