@@ -119,6 +119,27 @@ def list_available_models(x_gemini_api_key: Optional[str] = Header(None, alias="
     return {"models": models}
 
 
+def _classify_gemini_error(err_str: str) -> str:
+    """
+    Buckets a Gemini client error so the retry loop can react per class:
+
+      quota      — key is out of requests; no point retrying, switch model
+      missing    — model retired or unsupported for this key, switch model
+      overloaded — Google is shedding load for this model right now
+      transient  — server-side hiccup that a retry can plausibly clear
+      other      — unknown; treat like missing
+    """
+    if any(x in err_str for x in ('429', 'quota', 'resource exhausted', 'rate limit')):
+        return 'quota'
+    if any(x in err_str for x in ('404', 'not found', 'not supported')):
+        return 'missing'
+    if any(x in err_str for x in ('503', 'unavailable', 'overloaded')):
+        return 'overloaded'
+    if any(x in err_str for x in ('500', 'internal')):
+        return 'transient'
+    return 'other'
+
+
 @router.post("/api/analyze")
 async def analyze_video(request: AnalyzeRequest, http_request: Request):
     """Stream real-time progress via Server-Sent Events, then deliver the final result."""
@@ -861,7 +882,7 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
             
             for attempt in range(MAX_RETRIES):
                 if attempt > 0:
-                    wait = 2
+                    wait = 3
                     yield _sse({
                         "step": 4,
                         "step_progress": 25,
@@ -1016,7 +1037,9 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
                     err_str = str(e).lower()
                     logger.warning(f"Error from {model_name} (attempt {attempt + 1}): {e}")
                     
-                    if any(x in err_str for x in ('429', 'quota', 'resource exhausted', 'rate limit')):
+                    err_class = _classify_gemini_error(err_str)
+
+                    if err_class == 'quota':
                         encountered_quota_error = e
                         try:
                             record_ai_usage(model_name, ok=False, error=err_str, source=(request.url or "")[:200])
@@ -1024,12 +1047,22 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
                             pass
                         break
 
-                    if any(x in err_str for x in ('404', 'not found', 'not supported')):
+                    if err_class == 'missing':
                         break
-                    
-                    is_server_busy = any(x in err_str for x in ('503', 'unavailable', 'overloaded', '500', 'internal'))
-                    if not is_server_busy:
-                        break
+
+                    # 'overloaded' means Google is shedding load for this model right now.
+                    # A couple of seconds cannot ride out a demand spike, so hand over to
+                    # the next model immediately; on the last model a retry is all that is
+                    # left, so fall through and try again.
+                    if err_class == 'overloaded':
+                        if next_model_hint is not None:
+                            break
+                        continue
+
+                    if err_class == 'transient':
+                        continue
+
+                    break
             
             if analysis_data is not None and response is not None:
                 break
