@@ -255,7 +255,8 @@ async function start() {
     path.join(rootDir, 'backend')
   ];
 
-  console.log('\x1b[34m%s\x1b[0m', `🚀 Launching FastAPI server on http://127.0.0.1:8000 ...`);
+  const backendPort = process.env.PORT || process.env.BACKEND_PORT || '8000';
+  console.log('\x1b[34m%s\x1b[0m', `🚀 Launching FastAPI server on http://127.0.0.1:${backendPort} ...`);
 
   const backendProc = spawn(pythonExe, uvicornArgs, {
     cwd: rootDir,

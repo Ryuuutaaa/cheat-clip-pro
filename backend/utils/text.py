@@ -10,7 +10,8 @@ def parse_time_str(time_str: str) -> float:
         parts = time_str.split('.')
         time_str = parts[0]
         try:
-            ms = float('0.' + parts[1])
+            # Pad/slice to exactly 3 digits so ",5" means 500 ms and ",05" means 50 ms
+            ms = int(parts[1].ljust(3, '0')[:3]) / 1000.0
         except ValueError:
             pass
             
@@ -30,23 +31,42 @@ def parse_manual_subtitles(content: str, default_duration: float = 0.0) -> List[
     # Normalize line endings
     content = content.replace('\r\n', '\n').strip()
     
-    # 1. Try standard SRT parsing first
-    srt_regex = r'(?:\d+\n)?(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\n(.*?)(?=\n\n|\n\d+\n|\Z)'
-    srt_matches = re.findall(srt_regex, content, re.DOTALL)
-    
-    if srt_matches:
-        results = []
-        for start_str, end_str, text in srt_matches:
-            start = parse_time_str(start_str)
-            end = parse_time_str(end_str)
-            cleaned_text = text.replace('\n', ' ').strip()
-            results.append({
-                "text": cleaned_text,
-                "start": start,
-                "duration": max(0.1, end - start)
-            })
-        if results:
-            return results
+    # 1. Standard SRT parsing — tolerates cues WITHOUT milliseconds
+    #    ("00:00:01 --> 00:00:03") and multi-line dialogue.
+    #    The previous regex required 3-digit milliseconds, so such files yielded cues
+    #    with EMPTY text: the analysis then ran against a meaningless transcript.
+    cue_re = re.compile(
+        r'(\d{1,2}:\d{2}:\d{2}(?:[,.]\d{1,3})?)\s*-->\s*(\d{1,2}:\d{2}:\d{2}(?:[,.]\d{1,3})?)'
+    )
+    content_lines = content.split('\n')
+    srt_results: List[dict] = []
+    idx = 0
+    while idx < len(content_lines):
+        m = cue_re.search(content_lines[idx])
+        if m:
+            start = parse_time_str(m.group(1))
+            end = parse_time_str(m.group(2))
+            text_parts: List[str] = []
+            j = idx + 1
+            while j < len(content_lines):
+                nxt = content_lines[j].strip()
+                if not nxt or "-->" in nxt:
+                    break
+                text_parts.append(nxt)
+                j += 1
+            cleaned_text = " ".join(text_parts).strip()
+            if cleaned_text:
+                srt_results.append({
+                    "text": cleaned_text,
+                    "start": start,
+                    "duration": max(0.1, end - start),
+                })
+            idx = j if j > idx else idx + 1
+            continue
+        idx += 1
+
+    if srt_results:
+        return srt_results
 
     # 2. Try parsing line-by-line for timestamped lines
     line_time_range_regex = r'^[\[\(]?(\d{1,2}:\d{2}(?::\d{2})?(?:[,.]\d{1,3})?)\s*(?:-|-->|\s)\s*(\d{1,2}:\d{2}(?::\d{2})?(?:[,.]\d{1,3})?)[\]\)]?\s*(.*)'

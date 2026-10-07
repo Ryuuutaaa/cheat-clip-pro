@@ -108,6 +108,7 @@ export interface RenderSettings {
   subtitleYPercent?: number;
   subtitlePositionMode?: SubtitlePositionMode;
   subtitleCenterYPercent?: number;
+  subtitleOffsetSec?: number;
   selectedClips: ViralClip[];
   // Background Music
   bgmEnabled?: boolean;

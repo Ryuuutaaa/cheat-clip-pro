@@ -156,7 +156,8 @@ async def render_single_batch_clip(
                 subtitle_center_y_percent=settings.subtitle_center_y_percent if settings.subtitle_center_y_percent is not None else 50.0,
                 skip_title=skip_ass_title,
                 title_font_size_preset=settings.title_font_size or settings.font_size or "medium",
-                streamer_preset=settings.streamer_preset or "none"
+                streamer_preset=settings.streamer_preset or "none",
+                subtitle_offset=float(settings.subtitle_offset_sec or 0.0)
             )
 
         # 3. Render Final Vertical MP4

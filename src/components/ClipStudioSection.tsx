@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
 import { buildTimedWords, buildWordChunks, getCaptionAt, CAPTION_HIGHLIGHT_CLASS } from '../utils/wordTiming';
+import { copyToClipboard } from '../utils/clipboard';
 import type {
   ViralClip,
   RenderSettings,
@@ -92,7 +93,7 @@ const ClipRenderErrorBox: React.FC<{ errorMessage: string; t: any; onRetry?: () 
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(errorMessage);
+    copyToClipboard(errorMessage);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -236,6 +237,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [subtitleYPercent, setSubtitleYPercent] = useState<number>(21);
   const [subtitlePositionMode, setSubtitlePositionMode] = useState<SubtitlePositionMode>('bottom');
   const [subtitleCenterYPercent, setSubtitleCenterYPercent] = useState<number>(50);
+  // Manual subtitle timing nudge in seconds (+ later / - earlier)
+  const [subtitleOffset, setSubtitleOffset] = useState<number>(0);
   const [isCustomTitleY, setIsCustomTitleY] = useState<boolean>(false);
   const [titleDuration, setTitleDuration] = useState<TitleDurationOption>('entire');
   const [isClearingTemp, setIsClearingTemp] = useState<boolean>(false);
@@ -1271,6 +1274,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       subtitleYPercent: safeSubtitleY,
       subtitlePositionMode,
       subtitleCenterYPercent: safeSubCenterY,
+      subtitleOffsetSec: subtitleOffset,
       selectedClips: enrichedSelectedClips,
       // Background Music
       bgmEnabled: bgmEnabled && !!bgmFilePath,
@@ -2074,6 +2078,36 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       {t.studio.subCenter}
                     </button>
                   </div>
+                </div>
+
+                {/* Manual subtitle timing nudge (±0.5s) */}
+                <div className="studio-sub-toggle" style={{ marginTop: '0.75rem', flexDirection: 'column', alignItems: 'stretch' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                    <span className="sub-toggle-label" style={{ margin: 0 }}>{t.studio.subtitleOffsetLabel}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className="badge" style={{ fontSize: '0.74rem', padding: '0.15rem 0.45rem' }}>
+                        {subtitleOffset > 0 ? `+${subtitleOffset.toFixed(2)}s` : `${subtitleOffset.toFixed(2)}s`}
+                      </span>
+                      <button
+                        type="button"
+                        className="reset-btn"
+                        onClick={() => setSubtitleOffset(0)}
+                        style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'var(--text-muted)', borderRadius: '4px', cursor: 'pointer' }}
+                      >
+                        {t.studio.resetPosition}
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min="-0.5"
+                    max="0.5"
+                    step="0.05"
+                    value={subtitleOffset}
+                    onChange={(e) => setSubtitleOffset(Number(e.target.value))}
+                    className="position-slider"
+                  />
+                  <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.35rem 0 0 0' }}>{t.studio.subtitleOffsetHint}</p>
                 </div>
 
                 {subtitlePositionMode === 'bottom' ? (

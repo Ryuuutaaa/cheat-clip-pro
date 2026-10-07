@@ -24,6 +24,8 @@ class RenderSettingsModel(BaseModel):
     subtitle_y_percent: Optional[float] = None
     subtitle_position_mode: Optional[str] = "bottom"
     subtitle_center_y_percent: Optional[float] = 50.0
+    # Manual subtitle nudge in seconds (+ later / - earlier), e.g. 0.25
+    subtitle_offset_sec: Optional[float] = 0.0
     # Background Music
     bgm_enabled: Optional[bool] = False
     bgm_file_path: Optional[str] = None

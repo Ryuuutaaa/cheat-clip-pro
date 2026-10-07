@@ -8,8 +8,12 @@ import { ClipTrimmerModal } from './components/ClipTrimmerModal';
 import { AppUpdateModal } from './components/AppUpdateModal';
 import { resilientFetch } from './utils/api';
 import { safeStorage } from './utils/storage';
+import { copyToClipboard } from './utils/clipboard';
 import { useLanguage } from './locales';
 import type { AnalyzeResponse, ViralClip, RenderSettings, BatchRenderProgress } from './types';
+
+// Version-agnostic Gemini alias: survives Google retiring a specific family
+const DEFAULT_GEMINI_MODEL = 'gemini-flash-latest';
 
 // Declare YT global variables for TypeScript
 declare global {
@@ -71,12 +75,13 @@ export default function App() {
   // AI model selection and custom focus prompt states
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const saved = safeStorage.get('cheat_clip_selected_model');
-    // Auto-migrate outdated 1.0 models to gemini-2.5-flash
-    if (saved && (saved.includes('1.0') || saved.includes('vision'))) {
-      safeStorage.set('cheat_clip_selected_model', 'gemini-2.5-flash');
-      return 'gemini-2.5-flash';
+    // Retired model families 404 for new accounts — migrate to the version-agnostic alias
+    const retiredFamilies = ['1.0', 'vision', 'gemini-1.5', 'gemini-2.0', 'gemini-2.5'];
+    if (saved && retiredFamilies.some((p) => saved.includes(p))) {
+      safeStorage.set('cheat_clip_selected_model', DEFAULT_GEMINI_MODEL);
+      return DEFAULT_GEMINI_MODEL;
     }
-    return saved || 'gemini-2.5-flash';
+    return saved || DEFAULT_GEMINI_MODEL;
   });
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -337,6 +342,7 @@ export default function App() {
             subtitle_y_percent: settings.subtitleYPercent,
             subtitle_position_mode: settings.subtitlePositionMode || 'bottom',
             subtitle_center_y_percent: settings.subtitleCenterYPercent !== undefined ? settings.subtitleCenterYPercent : 50.0,
+            subtitle_offset_sec: settings.subtitleOffsetSec !== undefined ? settings.subtitleOffsetSec : 0.0,
             // Background Music
             bgm_enabled: settings.bgmEnabled || false,
             bgm_file_path: settings.bgmFilePath || null,
@@ -499,15 +505,12 @@ export default function App() {
       if (resp.ok) {
         const data = await resp.json();
         setToastMessage(data.message || t.header.clearedTempSuccess);
-        setTimeout(() => setToastMessage(null), 3500);
       } else {
         setToastMessage(t.header.clearedTempFailed);
-        setTimeout(() => setToastMessage(null), 3000);
       }
     } catch (e) {
       console.error('Failed to clear temp folder:', e);
       setToastMessage(t.header.clearedTempError);
-      setTimeout(() => setToastMessage(null), 3000);
     } finally {
       setIsClearingGlobalTemp(false);
       setShowGlobalClearModal(false);
@@ -837,14 +840,20 @@ export default function App() {
       setStepProgress({ 1: 100, 2: 0, 3: 0, 4: 0 });
       setOverallProgress(25);
       setLoadingDetails(t.loading.loadingFromHistory);
-      setTimeout(() => {
+      // Nested timers drive the fake progress; guard them so a second history click
+      // (or a new analysis) can never be overwritten by a stale chain.
+      cancelHistoryLoad();
+      const loadGen = loadGenRef.current;
+      loadTimersRef.current.push(window.setTimeout(() => {
+        if (loadGen !== loadGenRef.current) return;
         setCurrentStep(4);
         setStepProgress({ 1: 100, 2: 100, 3: 100, 4: 85 });
         setOverallProgress(90);
         setAiStage(t.loading.restoringHotspots);
         setAiDetail(t.loading.reconstructingTimestamps);
         setLoadingDetails(t.loading.reconstructingTimestamps);
-        setTimeout(() => {
+        loadTimersRef.current.push(window.setTimeout(() => {
+          if (loadGen !== loadGenRef.current) return;
           setStepProgress({ 1: 100, 2: 100, 3: 100, 4: 100 });
           setOverallProgress(100);
           setResult(data);
@@ -853,11 +862,10 @@ export default function App() {
           if (data.clips?.length > 0) setActiveClip(data.clips[0]);
           // Force recreate the player since we destroyed it
           scheduleInitRetry(data.video_id, true, 150, initGenRef.current);
-        }, 500);
-      }, 600);
+        }, 500));
+      }, 600));
     } catch (_) {
       setToastMessage(t.form.historyLoadFailed);
-      setTimeout(() => setToastMessage(null), 3000);
     }
   };
 
@@ -870,7 +878,6 @@ export default function App() {
     localStorage.removeItem(tsKey);
     refreshHistory();
     setToastMessage(t.form.removedFromHistory(entry.title));
-    setTimeout(() => setToastMessage(null), 3000);
   };
 
   const clearAllHistory = () => {
@@ -884,7 +891,6 @@ export default function App() {
     toRemove.forEach(k => localStorage.removeItem(k));
     setHistory([]);
     setToastMessage(t.form.allHistoryCleared);
-    setTimeout(() => setToastMessage(null), 3000);
   };
 
   const formatRelativeTime = (iso: string) => {
@@ -903,6 +909,17 @@ export default function App() {
   const initGenRef = useRef(0);
   const initTimerRef = useRef<number | null>(null);
   const initAttemptsRef = useRef(0);
+
+  // --- history-load guards: the nested progress timers must never clobber a
+  // newer history load or a freshly started analysis.
+  const loadGenRef = useRef(0);
+  const loadTimersRef = useRef<number[]>([]);
+
+  const cancelHistoryLoad = () => {
+    loadGenRef.current += 1;
+    loadTimersRef.current.forEach((id) => clearTimeout(id));
+    loadTimersRef.current = [];
+  };
 
   const scheduleInitRetry = (videoId: string, forceRecreate: boolean, delay: number, gen: number) => {
     if (gen !== initGenRef.current) return; // superseded by a newer initPlayer call
@@ -1141,6 +1158,8 @@ export default function App() {
 
   const handleAnalyze = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    // A new analysis must cancel any pending history-load progress timers.
+    cancelHistoryLoad();
 
     if (sourceMode === 'upload') {
       if (!uploadedVideoFile && !uploadedVideoInfo) {
@@ -1524,11 +1543,8 @@ export default function App() {
   };
 
   const handleCopyText = (text: string, label: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setToastMessage(t.results.copiedGeneralToast(label));
-      setTimeout(() => {
-        setToastMessage(null);
-      }, 3000);
+    copyToClipboard(text).then((ok) => {
+      setToastMessage(ok ? t.results.copiedGeneralToast(label) : t.results.copyFailedToast);
     });
   };
 
@@ -1593,16 +1609,31 @@ export default function App() {
         eta: ''
       });
 
-      // Poll download progress every 750ms
+      // Poll download progress every 750ms. Transient poll failures are tolerated
+      // (a network blip must not mark a successful download as failed) and the loop
+      // is bounded so it can never poll forever.
       await new Promise<void>((resolve, reject) => {
-        const intervalId = setInterval(async () => {
+        let consecutiveErrors = 0;
+        const startedAt = Date.now();
+        const intervalId = window.setInterval(async () => {
+          if (Date.now() - startedAt > 45 * 60 * 1000) {
+            window.clearInterval(intervalId);
+            setIsDownloadingRaw(false);
+            reject(new Error(t.rawDownload.failedToast));
+            return;
+          }
           try {
             const statusRes = await fetch(`/api/download-raw-status/${jobId}`);
             if (!statusRes.ok) {
-              clearInterval(intervalId);
-              reject(new Error(t.rawDownload.failedToast));
-              return;
+              if (statusRes.status === 404) {
+                // The job no longer exists on the server — terminal.
+                window.clearInterval(intervalId);
+                reject(new Error(t.rawDownload.failedToast));
+                return;
+              }
+              throw new Error(`HTTP ${statusRes.status}`);
             }
+            consecutiveErrors = 0;
             const statusData = await statusRes.json();
             setRawDownloadProgress({
               jobId,
@@ -1618,7 +1649,7 @@ export default function App() {
             });
 
             if (statusData.status === 'ready') {
-              clearInterval(intervalId);
+              window.clearInterval(intervalId);
               setToastMessage(t.rawDownload.completedToast);
               const a = document.createElement("a");
               a.href = statusData.download_url || `/api/download-rendered/${statusData.filename}`;
@@ -1632,14 +1663,17 @@ export default function App() {
               }, 4000);
               resolve();
             } else if (statusData.status === 'failed') {
-              clearInterval(intervalId);
+              window.clearInterval(intervalId);
               setIsDownloadingRaw(false);
               reject(new Error(statusData.error || t.rawDownload.failedToast));
             }
           } catch (pollErr) {
-            clearInterval(intervalId);
-            setIsDownloadingRaw(false);
-            reject(pollErr);
+            consecutiveErrors += 1;
+            if (consecutiveErrors >= 10) { // ~7.5s of continuous failures
+              window.clearInterval(intervalId);
+              setIsDownloadingRaw(false);
+              reject(pollErr);
+            }
           }
         }, 750);
       });
@@ -1701,24 +1735,36 @@ export default function App() {
       const jobId = startData.job_id;
 
       await new Promise<void>((resolve, reject) => {
-        const intervalId = setInterval(async () => {
+        let consecutiveErrors = 0;
+        const startedAt = Date.now();
+        const intervalId = window.setInterval(async () => {
+          if (Date.now() - startedAt > 45 * 60 * 1000) {
+            window.clearInterval(intervalId);
+            reject(new Error("Clip download timed out"));
+            return;
+          }
           try {
             const statusRes = await fetch(`/api/download-raw-clip-status/${jobId}`);
             if (!statusRes.ok) {
-              clearInterval(intervalId);
-              reject(new Error("Failed to get clip download status"));
-              return;
+              if (statusRes.status === 404) {
+                // The job no longer exists on the server — terminal.
+                window.clearInterval(intervalId);
+                reject(new Error("Failed to get clip download status"));
+                return;
+              }
+              throw new Error(`HTTP ${statusRes.status}`);
             }
+            consecutiveErrors = 0;
             const statusData = await statusRes.json();
             if (statusData.status === 'ready') {
-              clearInterval(intervalId);
+              window.clearInterval(intervalId);
               setClipDownloadStates(prev => ({
                 ...prev,
                 [clipKey]: { status: 'ready' }
               }));
               setToastMessage(`✅ ${clip.title} (raw)`);
               const a = document.createElement("a");
-              a.href = statusData.download_url;
+              a.href = statusData.download_url || `/api/download-rendered/${statusData.filename}`;
               a.download = statusData.filename || `${clip.title} (raw).mp4`;
               document.body.appendChild(a);
               a.click();
@@ -1731,7 +1777,7 @@ export default function App() {
               }, 4000);
               resolve();
             } else if (statusData.status === 'failed') {
-              clearInterval(intervalId);
+              window.clearInterval(intervalId);
               setClipDownloadStates(prev => ({
                 ...prev,
                 [clipKey]: { status: 'error', error: statusData.error }
@@ -1739,8 +1785,11 @@ export default function App() {
               reject(new Error(statusData.error || "Clip download failed"));
             }
           } catch (pollErr) {
-            clearInterval(intervalId);
-            reject(pollErr);
+            consecutiveErrors += 1;
+            if (consecutiveErrors >= 10) { // ~7.5s of continuous failures
+              window.clearInterval(intervalId);
+              reject(pollErr);
+            }
           }
         }, 750);
       });
@@ -1778,20 +1827,16 @@ Transcript:
       copyText += `\n\nCaption Suggestion: ${captionText}`;
     }
 
-    navigator.clipboard.writeText(copyText).then(() => {
-      setToastMessage(t.results.copiedDetailsToast(clip.title));
-      setTimeout(() => {
-        setToastMessage(null);
-      }, 3000);
+    copyToClipboard(copyText).then((ok) => {
+      setToastMessage(ok ? t.results.copiedDetailsToast(clip.title) : t.results.copyFailedToast);
     });
   };
 
   const handleCopyTimestamp = (clip: ViralClip, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const ts = `${formatSeconds(clip.start_time)} - ${formatSeconds(clip.end_time)}`;
-    navigator.clipboard.writeText(ts).then(() => {
-      setToastMessage(t.results.copiedTimestampToast(ts));
-      setTimeout(() => setToastMessage(null), 3000);
+    copyToClipboard(ts).then((ok) => {
+      setToastMessage(ok ? t.results.copiedTimestampToast(ts) : t.results.copyFailedToast);
     });
   };
 
@@ -1841,8 +1886,8 @@ Transcript:
       }
     }
 
-    navigator.clipboard.writeText(text).then(() => {
-      setTimeout(() => setToastMessage(null), 3000);
+    copyToClipboard(text).then((ok) => {
+      if (!ok) setToastMessage(t.results.copyFailedToast);
     });
   };
 
@@ -1962,13 +2007,11 @@ Transcript:
     downloadAnchor.remove();
 
     setToastMessage(t.results.downloadedJsonToast);
-    setTimeout(() => setToastMessage(null), 3000);
   };
 
   const handleExportSRT = () => {
     if (!result || !result.transcript) {
       setToastMessage(t.results.noTranscriptToExport);
-      setTimeout(() => setToastMessage(null), 3000);
       return;
     }
     
@@ -1996,7 +2039,6 @@ Transcript:
     downloadAnchor.remove();
 
     setToastMessage(t.results.downloadedSrtToast);
-    setTimeout(() => setToastMessage(null), 3000);
   };
 
   const handleCopyAllMarkdown = () => {
@@ -2025,9 +2067,8 @@ Transcript:
       md += `- **Transcript**:\n  > ${clip.transcript.replace(/\n/g, '\n  > ')}\n\n`;
     });
 
-    navigator.clipboard.writeText(md).then(() => {
-      setToastMessage(t.results.copiedMarkdownToast);
-      setTimeout(() => setToastMessage(null), 3000);
+    copyToClipboard(md).then((ok) => {
+      setToastMessage(ok ? t.results.copiedMarkdownToast : t.results.copyFailedToast);
     });
   };
 
@@ -2960,7 +3001,6 @@ Transcript:
                         const text = evt.target?.result as string;
                         setManualSubtitlesContent(text);
                         setToastMessage(t.form.subtitlesLoaded(file.name));
-                        setTimeout(() => setToastMessage(null), 3000);
                       };
                       reader.readAsText(file);
                     }}

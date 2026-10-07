@@ -1182,6 +1182,189 @@ def clean_caption_text(text: str) -> str:
     return t
 
 
+def _whisper_words_for_clip(video_path: str) -> List[Dict[str, Any]]:
+    """Runs Whisper on the already-sliced clip and returns REAL word timestamps."""
+    whisper_model = get_whisper_model()
+    if whisper_model is None:
+        return []
+    try:
+        transcribe_kwargs: Dict[str, Any] = {
+            "word_timestamps": True,
+            "fp16": False,
+            "condition_on_previous_text": False,
+        }
+        forced_language = (os.environ.get("WHISPER_LANGUAGE") or "").strip()
+        if forced_language:
+            transcribe_kwargs["language"] = forced_language
+        result = whisper_model.transcribe(video_path, **transcribe_kwargs)
+        words: List[Dict[str, Any]] = []
+        for segment in result.get("segments", []):
+            for w in segment.get("words", []):
+                word_clean = clean_caption_text(w.get("word", "").strip())
+                if word_clean:
+                    st = max(0.0, float(w.get("start", 0.0)))
+                    words.append({
+                        "word": word_clean,
+                        "start": st,
+                        "end": max(st + 0.10, float(w.get("end", 0.0))),
+                    })
+        if words:
+            logger.info(f"Whisper provided {len(words)} real word timestamps.")
+        return words
+    except Exception as e:
+        logger.warning(f"Whisper word transcription error: {e}")
+        return []
+
+
+def align_words_to_whisper_timing(
+    caption_words: List[Dict[str, Any]],
+    whisper_words: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Keeps the caption TEXT (fidelity) but re-times it with Whisper's REAL timings.
+
+    Poor-man's forced alignment: difflib matches the two token sequences; matched
+    caption words inherit Whisper's start/end, and the gaps between anchors are
+    linearly interpolated (instead of being spread evenly by character count).
+    """
+    if not caption_words or not whisper_words:
+        return caption_words
+
+    a = [clean_caption_text(str(w.get("word", ""))).lower() for w in caption_words]
+    b = [clean_caption_text(str(w.get("word", ""))).lower() for w in whisper_words]
+    if not any(a) or not any(b):
+        return caption_words
+
+    import difflib
+    matcher = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
+    times: List[Optional[Tuple[float, float]]] = [None] * len(caption_words)
+    for block in matcher.get_matching_blocks():
+        for k in range(block.size):
+            ci = block.a + k
+            wi = block.b + k
+            times[ci] = (
+                float(whisper_words[wi].get("start", 0.0)),
+                float(whisper_words[wi].get("end", 0.0)),
+            )
+
+    matched = [i for i, t in enumerate(times) if t is not None]
+    if len(matched) < max(2, len(caption_words) // 4):
+        logger.info("Whisper/caption alignment too weak — keeping caption-derived timing.")
+        return caption_words
+
+    first_i, last_i = matched[0], matched[-1]
+    for i in range(first_i):
+        times[i] = times[first_i]
+    for i in range(last_i + 1, len(caption_words)):
+        times[i] = times[last_i]
+
+    idx = first_i
+    while idx <= last_i:
+        if times[idx] is not None:
+            idx += 1
+            continue
+        run_start = idx
+        while idx <= last_i and times[idx] is None:
+            idx += 1
+        run_end = idx  # first anchor after the gap
+        prev_end = float(times[run_start - 1][1])
+        next_start = float(times[run_end][0])
+        gap_words = run_end - run_start
+        step = max(0.05, (next_start - prev_end) / (gap_words + 1))
+        for k in range(gap_words):
+            s = prev_end + step * k
+            times[run_start + k] = (s, s + step)
+
+    out: List[Dict[str, Any]] = []
+    for i, w in enumerate(caption_words):
+        st, en = times[i] if times[i] else (float(w.get("start", 0.0)), float(w.get("end", 0.0)))
+        out.append({
+            "word": w.get("word", ""),
+            "start": round(max(0.0, st), 2),
+            "end": round(max(st + 0.08, en), 2),
+        })
+    return out
+
+
+def _subtitle_timing_mode() -> str:
+    """'auto' (default) = use Whisper timing when available, 'captions' = old behaviour,
+    'whisper' = always prefer Whisper (even if the text alignment is weak)."""
+    mode = (os.environ.get("SUBTITLE_TIMING") or "auto").strip().lower()
+    return mode if mode in ("auto", "captions", "whisper") else "auto"
+
+
+def refine_timing_with_whisper(
+    words: List[Dict[str, Any]],
+    video_path: str,
+) -> List[Dict[str, Any]]:
+    """Re-times caption words with real Whisper timings (no-op when disabled)."""
+    mode = _subtitle_timing_mode()
+    if mode == "captions" or not words:
+        return words
+    whisper_words = _whisper_words_for_clip(video_path)
+    if not whisper_words:
+        return words
+    aligned = align_words_to_whisper_timing(words, whisper_words)
+    if aligned is words and mode == "whisper":
+        return whisper_words
+    return aligned
+
+
+def dedupe_overlapping_caption_lines(
+    lines: List[Dict[str, Any]],
+    max_overlap_words: int = 6,
+) -> List[Dict[str, Any]]:
+    """
+    YouTube auto-captions routinely repeat the tail of one snippet at the start of
+    the next. Those duplicates create repeated words and pile extra time into the
+    following line, so strip the repeated prefix — but ONLY when the two lines
+    really overlap in time. Without that check a legitimate repeat such as
+    "i love you" / "i love you too" would silently lose words.
+    """
+    out: List[Dict[str, Any]] = []
+    prev_tail: List[str] = []
+    prev_end: Optional[float] = None
+
+    for line in lines:
+        text = clean_caption_text(str(line.get("text", ""))).strip()
+        if not text:
+            continue
+        words = text.split()
+
+        l_start: Optional[float] = None
+        l_end: Optional[float] = None
+        try:
+            if line.get("start") is not None:
+                l_start = float(line.get("start"))
+            if line.get("end") is not None:
+                l_end = float(line.get("end"))
+            elif line.get("duration") is not None and l_start is not None:
+                l_end = l_start + float(line.get("duration"))
+        except (TypeError, ValueError):
+            l_start = l_end = None
+
+        overlaps_prev = (
+            prev_end is not None and l_start is not None and l_start < (prev_end - 0.05)
+        )
+
+        if prev_tail and words and overlaps_prev:
+            max_k = min(len(prev_tail), len(words), max_overlap_words)
+            for k in range(max_k, 0, -1):
+                if [w.lower() for w in words[:k]] == [w.lower() for w in prev_tail[-k:]]:
+                    words = words[k:]
+                    break
+
+        if not words:
+            continue
+
+        merged = dict(line)
+        merged["text"] = " ".join(words)
+        out.append(merged)
+        prev_tail = words[-max_overlap_words:]
+        prev_end = l_end if l_end is not None else prev_end
+    return out
+
+
 def transcribe_clip_words(
     video_path: str,
     fallback_transcript: Optional[List[Dict[str, Any]]] = None,
@@ -1190,12 +1373,14 @@ def transcribe_clip_words(
 ) -> List[Dict[str, Any]]:
     """
     Extracts word-level timestamps using the analyzed video transcript.
-    This guarantees 100% fidelity with the analyzed speech (no mis-speech or Whisper hallucinations).
+    The TEXT always comes from the analyzed transcript (exact matches from YouTube —
+    no Whisper hallmarks), while the TIMING is refined with Whisper's real word
+    timestamps when they are available (see SUBTITLE_TIMING).
     Timestamps are mapped relative to the sliced clip audio (0.0s = clip_start_time).
-    Whisper is only used as a fallback if no video transcript is available.
     """
     # 1. Primary: Use the analyzed video transcript (exact matches from YouTube / Whisper)
     if fallback_transcript:
+        fallback_transcript = dedupe_overlapping_caption_lines(fallback_transcript)
         words = []
         for line in fallback_transcript:
             line_text = line.get("text", "").strip()
@@ -1224,13 +1409,20 @@ def transcribe_clip_words(
             if not line_words:
                 continue
 
-            # Distribute words realistically across the line duration based on character length
+            # Distribute words across the line by character weight, normalised so the
+            # words ALWAYS fit exactly inside the caption's window. The old per-word
+            # floor (max(0.15, …)) pushed the tail of short lines past the line end.
             line_dur = max(0.2, l_end - l_start)
-            total_chars = max(1, sum(max(1, len(w)) for w in line_words))
+            weights = [max(1, len(w)) for w in line_words]
+            total_weight = max(1, sum(weights))
+            floor = min(0.12, line_dur / (2.0 * len(line_words)))
+            raw_durs = [max(floor, (wt / total_weight) * line_dur) for wt in weights]
+            raw_total = sum(raw_durs) or 1.0
+            durations = [d * (line_dur / raw_total) for d in raw_durs]
             cur_time = l_start
 
             for i, w in enumerate(line_words):
-                w_dur = max(0.15, (max(1, len(w)) / total_chars) * line_dur)
+                w_dur = durations[i]
                 w_s_global = cur_time
                 w_e_global = cur_time + w_dur
                 cur_time = w_e_global
@@ -1252,39 +1444,13 @@ def transcribe_clip_words(
                 })
         if words:
             logger.info(f"Using analyzed video transcript: mapped {len(words)} words for clip range [{clip_start_time:.1f}s -> {clip_end_time:.1f}s].")
-            return words
+            # Caption TEXT is kept, but the TIMING is refined with real Whisper word
+            # timestamps so words no longer lag behind the speech.
+            # Disable with SUBTITLE_TIMING=captions in backend/.env
+            return refine_timing_with_whisper(words, video_path)
 
     # 2. Secondary fallback: Whisper if no transcript was returned from YouTube
-    whisper_model = get_whisper_model()
-    if whisper_model is not None:
-        try:
-            logger.info("Running Whisper word-level transcription as fallback...")
-            transcribe_kwargs: Dict[str, Any] = {
-                "word_timestamps": True,
-                "fp16": False,
-                "condition_on_previous_text": False,
-            }
-            forced_language = (os.environ.get("WHISPER_LANGUAGE") or "").strip()
-            if forced_language:
-                transcribe_kwargs["language"] = forced_language
-            result = whisper_model.transcribe(video_path, **transcribe_kwargs)
-            words = []
-            for segment in result.get("segments", []):
-                for w in segment.get("words", []):
-                    word_clean = clean_caption_text(w.get("word", "").strip())
-                    if word_clean:
-                        words.append({
-                            "word": word_clean,
-                            "start": max(0.0, float(w.get("start", 0.0))),
-                            "end": max(float(w.get("start", 0.0)) + 0.1, float(w.get("end", 0.0)))
-                        })
-            if words:
-                logger.info(f"Whisper transcribed {len(words)} words successfully.")
-                return words
-        except Exception as e:
-            logger.warning(f"Whisper word transcription error: {e}")
-
-    return []
+    return _whisper_words_for_clip(video_path)
 
 
 def format_ass_timestamp(seconds: float) -> str:
@@ -1661,6 +1827,7 @@ def generate_ass_file(
     subtitle_y_percent: Optional[float] = None,
     subtitle_position_mode: str = "bottom",
     subtitle_center_y_percent: float = 50.0,
+    subtitle_offset: float = 0.0,
     skip_title: bool = False,
     title_font_size_preset: Optional[str] = None,
     streamer_preset: Optional[str] = "none"
@@ -1911,8 +2078,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not raw_text:
                 continue
             w_text = escape_ass_text(apply_text_case(raw_text, text_case))
-            st = max(0.0, float(w.get("start", 0.0)))
-            et = max(st + 0.08, float(w.get("end", st + 0.25)))
+            # Manual ±offset (seconds) lets the user nudge subtitles earlier/later
+            st = max(0.0, float(w.get("start", 0.0)) + subtitle_offset)
+            et = max(st + 0.08, float(w.get("end", st + 0.25)) + subtitle_offset)
             valid_words.append({"word_text": w_text, "start": st, "end": et, "raw": w})
 
         valid_words.sort(key=lambda x: x["start"])
@@ -1933,25 +2101,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if current_chunk:
             chunks.append(current_chunk)
 
-        # Step C: Enforce strictly non-overlapping, monotonically increasing chunk boundaries
+        # Step C: build chunk boundaries and resolve overlaps by trimming the
+        # EARLIER chunk — never by delaying the later one's start. Pushing a start
+        # forward (`c_start = prev_end`) is what made words appear LATE whenever
+        # YouTube caption lines overlapped.
         chunk_bounds = []
         for chunk in chunks:
             c_start = chunk[0]["start"]
             c_end = max(c_start + 0.25, chunk[-1]["end"])
-            if chunk_bounds:
-                prev_end = chunk_bounds[-1][1]
-                if c_start < prev_end:
-                    c_start = prev_end
-                if c_end <= c_start:
-                    c_end = c_start + 0.25
             chunk_bounds.append((c_start, c_end))
 
-        # Clamp against subsequent chunk start times to eliminate any inter-chunk overlaps
         for i in range(len(chunk_bounds) - 1):
             cur_s, cur_e = chunk_bounds[i]
             nxt_s, _ = chunk_bounds[i + 1]
             if cur_e > nxt_s:
-                chunk_bounds[i] = (cur_s, nxt_s)
+                chunk_bounds[i] = (cur_s, max(cur_s + 0.10, nxt_s))
 
         # Step D: Partition each chunk into strictly contiguous active-word time slices
         for chunk_idx, chunk in enumerate(chunks):
