@@ -140,6 +140,23 @@ def _classify_gemini_error(err_str: str) -> str:
     return 'other'
 
 
+def _retrieve_task_exception(task: asyncio.Task) -> None:
+    """
+    Consume a finished task's exception.
+
+    The model call runs as a task so the stream can emit heartbeats while it is in flight.
+    If the client disconnects mid-call the generator is torn down and nothing ever awaits
+    that task, so asyncio reports "Task exception was never retrieved" once it fails —
+    turning an ordinary 503 into a scary traceback. Retrieving it here keeps the report
+    quiet while the normal path still raises it through `await task`.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.debug(f"Model call finished after the stream ended: {exc}")
+
+
 @router.post("/api/analyze")
 async def analyze_video(request: AnalyzeRequest, http_request: Request):
     """Stream real-time progress via Server-Sent Events, then deliver the final result."""
@@ -916,6 +933,7 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
                         max_output_tokens=65536 if any(v in model_name for v in ['2.0', '2.5', '3.']) else 8192,
                     )
                 ))
+                task.add_done_callback(_retrieve_task_exception)
                 
                 call_start = asyncio.get_running_loop().time()
                 while not task.done():
