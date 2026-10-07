@@ -598,7 +598,7 @@ export default function App() {
           if (data.models && data.models.length > 0) {
             setAvailableModels(data.models);
             if (!data.models.includes(selectedModel) || selectedModel.includes('1.5') || selectedModel.includes('1.0')) {
-              const fallback = data.models.find((m: string) => m.includes('flash')) || data.models[0] || 'gemini-2.5-flash';
+              const fallback = data.models.find((m: string) => m.includes('flash')) || data.models[0] || DEFAULT_GEMINI_MODEL;
               setSelectedModel(fallback);
               localStorage.setItem('cheat_clip_selected_model', fallback);
             }
@@ -2779,12 +2779,12 @@ Transcript:
                     ))
                   ) : (
                     <>
-                      <option value="gemini-2.5-flash" style={{ background: '#0d1324', color: '#fff' }}>gemini-2.5-flash (Fast & recommended - Free tier friendly)</option>
-                      <option value="gemini-2.5-flash-lite" style={{ background: '#0d1324', color: '#fff' }}>gemini-2.5-flash-lite (Ultra-fast & lightweight)</option>
-                      <option value="gemini-2.0-flash" style={{ background: '#0d1324', color: '#fff' }}>gemini-2.0-flash (Fast & responsive)</option>
-                      <option value="gemini-2.0-flash-lite" style={{ background: '#0d1324', color: '#fff' }}>gemini-2.0-flash-lite (Lightweight flash)</option>
-                      <option value="gemini-1.5-flash" style={{ background: '#0d1324', color: '#fff' }}>gemini-1.5-flash (Fallback flash)</option>
-                      <option value="gemini-2.5-pro" style={{ background: '#0d1324', color: '#fff' }}>gemini-2.5-pro (Creative & complex - High quota)</option>
+                      <option value="gemini-flash-latest" style={{ background: '#0d1324', color: '#fff' }}>gemini-flash-latest {t.form.modelRecommended}</option>
+                      <option value="gemini-flash-lite-latest" style={{ background: '#0d1324', color: '#fff' }}>gemini-flash-lite-latest {t.form.modelFastest}</option>
+                      <option value="gemini-3.8-flash" style={{ background: '#0d1324', color: '#fff' }}>gemini-3.8-flash</option>
+                      <option value="gemini-3.5-flash" style={{ background: '#0d1324', color: '#fff' }}>gemini-3.5-flash</option>
+                      <option value="gemini-3.5-flash-lite" style={{ background: '#0d1324', color: '#fff' }}>gemini-3.5-flash-lite</option>
+                      <option value="gemini-2.5-pro" style={{ background: '#0d1324', color: '#fff' }}>gemini-2.5-pro {t.form.modelPro}</option>
                     </>
                   )}
                 </select>
@@ -3266,7 +3266,7 @@ Transcript:
                   fontSize: '0.8rem',
                   fontWeight: 600
                 }}
-                title={showHistory ? "Minimize" : "Expand"}
+                title={showHistory ? t.form.minimize : t.form.expand}
               >
                 {showHistory ? '▲' : '▼'}
               </button>

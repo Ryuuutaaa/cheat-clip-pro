@@ -2297,7 +2297,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <div className="dropzone-icon">{isUploadingBgm ? '⏳' : isBgmDragging ? '📥' : '🎶'}</div>
                   <div className="dropzone-text">
                     <span className="dropzone-main-text">
-                      {isUploadingBgm ? 'Uploading Audio...' : isBgmDragging ? t.studio.bgmDropActive : t.studio.bgmUploadMain}
+                      {isUploadingBgm ? t.studio.uploadingAudioLabel : isBgmDragging ? t.studio.bgmDropActive : t.studio.bgmUploadMain}
                     </span>
                     <span className="dropzone-sub-text">{t.studio.bgmUploadSub}</span>
                   </div>
@@ -2465,7 +2465,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <div className="dropzone-icon">{isUploadingHookSfx ? '⏳' : isHookSfxDragging ? '📥' : '⚡'}</div>
                   <div className="dropzone-text">
                     <span className="dropzone-main-text">
-                      {isUploadingHookSfx ? 'Uploading SFX...' : isHookSfxDragging ? t.studio.hookSfxDropActive : t.studio.hookSfxUploadMain}
+                      {isUploadingHookSfx ? t.studio.uploadingSfxLabel : isHookSfxDragging ? t.studio.hookSfxDropActive : t.studio.hookSfxUploadMain}
                     </span>
                     <span className="dropzone-sub-text">{t.studio.hookSfxUploadSub}</span>
                   </div>
@@ -2668,7 +2668,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         <div className="dropzone-icon">{isUploadingWatermark ? '⏳' : isWatermarkDragging ? '📥' : '🖼️'}</div>
                         <div className="dropzone-text">
                           <span className="dropzone-main-text">
-                            {isUploadingWatermark ? 'Uploading Watermark...' : isWatermarkDragging ? t.studio.watermarkDropActive : t.studio.watermarkUploadMain}
+                            {isUploadingWatermark ? t.studio.uploadingWatermarkLabel : isWatermarkDragging ? t.studio.watermarkDropActive : t.studio.watermarkUploadMain}
                           </span>
                           <span className="dropzone-sub-text">{t.studio.watermarkUploadSub}</span>
                         </div>
@@ -3286,14 +3286,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                             </div>
                           </div>
                           <div className="skeleton-label-wrap">
-                            <span className="skeleton-main-label">STREAMER CAM</span>
+                            <span className="skeleton-main-label">{t.studio.streamerCamLabel}</span>
                             <span className="skeleton-sub-label">
                               {facecamPosition === 'auto' ? `AUTO FACE-CROP (${aspectRatio})` : `${facecamPosition.toUpperCase().replace('_', '-')} CROP (${aspectRatio})`}
                             </span>
                           </div>
                         </div>
                         <div className="wireframe-cam-badge">
-                          <span className="live-dot"></span> FACECAM ({facecamPosition === 'auto' ? 'AI AUTO' : facecamPosition.toUpperCase().replace('_', '-')})
+                          <span className="live-dot"></span> {t.studio.facecamLabel} ({facecamPosition === 'auto' ? t.studio.aiAutoLabel : facecamPosition.toUpperCase().replace('_', '-')})
                         </div>
                       </div>
                       <div className="wireframe-split-divider"></div>
@@ -3681,7 +3681,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 <div className="history-info-item">
                   <span className="info-key">{t.studio.specResolution}</span>
                   <span className="info-val">
-                    {aspectRatio === '16:9' ? '1920×1080 (16:9 Landscape)' : aspectRatio === '1:1' ? '1080×1080 (1:1 Square)' : aspectRatio === '4:3' ? '1440×1080 (4:3 Classic)' : '1080×1920 (9:16 Portrait)'}
+                    {aspectRatio === '16:9' ? t.studio.res169 : aspectRatio === '1:1' ? t.studio.res11 : aspectRatio === '4:3' ? t.studio.res43 : t.studio.res916}
                   </span>
                 </div>
                 <div className="history-info-item history-hardware-item">
@@ -3812,7 +3812,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       <h4 className="batch-queue-title">{t.studio.batchQueueTitle}</h4>
                       {batchProgress.overall_status === 'running' && (
                         <span className="queue-generating-pill">
-                          <span className="queue-pulse-dot"></span> ⚡ GENERATING VIDEO...
+                          <span className="queue-pulse-dot"></span> {t.studio.generatingBadge}
                         </span>
                       )}
                     </div>

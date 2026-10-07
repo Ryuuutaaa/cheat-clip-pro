@@ -352,7 +352,7 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({ isOpen, onClose 
                   {t.updateModal.updatingApp}
                 </h4>
                 <p style={{ margin: '0.4rem 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Pulling latest commits from GitHub and preparing restart...
+                  {t.updateModal.pullingCommits}
                 </p>
               </div>
             </div>

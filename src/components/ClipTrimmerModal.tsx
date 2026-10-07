@@ -610,7 +610,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
               <div className="studio-title-row" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <h2 style={{ fontSize: '1.12rem', margin: 0 }}>{t.trimmer.modalTitle}</h2>
                 <span className="status-pill active" style={{ fontSize: '0.68rem', padding: '0.15rem 0.55rem' }}>
-                  ±2 min Context Limit
+                  {t.trimmer.contextLimit}
                 </span>
               </div>
               <p className="studio-header-desc" style={{ fontSize: '0.78rem', margin: '0.2rem 0 0', color: 'var(--text-secondary)' }}>
@@ -643,7 +643,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
               value={clipTitle}
               disabled={isDownloading}
               onChange={(e) => setClipTitle(e.target.value)}
-              placeholder="Clip title"
+              placeholder={t.trimmer.titlePlaceholder}
               style={{ flex: 1, padding: '0.35rem 0.75rem', fontSize: '0.82rem' }}
             />
           </div>
