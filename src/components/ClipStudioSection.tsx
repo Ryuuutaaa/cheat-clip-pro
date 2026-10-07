@@ -372,25 +372,48 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const clipEnd = currentPreviewClip ? currentPreviewClip.end_time : 60;
   const clipDuration = Math.max(1, clipEnd - clipStart);
 
-  // Fetch face/object detection coordinates
+  // Fetch face/object detection coordinates.
+  // Each request is expensive on the server (it extracts a frame from the source video), so
+  // results are cached per clip + framing and superseded requests are aborted rather than left
+  // running — the preview used to fire the same request two or three times over.
+  const faceBoxCacheRef = useRef<Map<string, { cx: number; cy: number; w: number; h: number; found: boolean; type?: string }>>(new Map());
+  const faceAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     if (!videoId) return;
-    let isMounted = true;
+    // A YouTube link that no longer matches the analysed video would make the server extract a
+    // frame from one video and cache it under another, so drop it and let the id speak.
+    const ytMatch = (videoUrl || '').match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{11})/);
+    const effectiveUrl = ytMatch && ytMatch[1] !== videoId ? '' : (videoUrl || '');
+    const cacheKey = `${videoId}|${clipStart}|${effectiveUrl}|${facecamPosition}|${streamerPreset}`;
+    const cached = faceBoxCacheRef.current.get(cacheKey);
+    if (cached) {
+      setFaceBox(cached);
+      return;
+    }
+
+    faceAbortRef.current?.abort();
+    const controller = new AbortController();
+    faceAbortRef.current = controller;
+
     const fetchFace = async () => {
       try {
-        const res = await fetch(`/api/detect-face?video_id=${encodeURIComponent(videoId)}&timestamp=${clipStart}&video_url=${encodeURIComponent(videoUrl || '')}&facecam_position=${encodeURIComponent(facecamPosition)}&streamer_preset=${encodeURIComponent(streamerPreset)}`);
-        if (res.ok && isMounted) {
+        const res = await fetch(`/api/detect-face?video_id=${encodeURIComponent(videoId)}&timestamp=${clipStart}&video_url=${encodeURIComponent(effectiveUrl)}&facecam_position=${encodeURIComponent(facecamPosition)}&streamer_preset=${encodeURIComponent(streamerPreset)}`, { signal: controller.signal });
+        if (res.ok && !controller.signal.aborted) {
           const data = await res.json();
           if (data && typeof data.cx === 'number') {
-            setFaceBox(data);
+            faceBoxCacheRef.current.set(cacheKey, data);
+            if (!controller.signal.aborted) setFaceBox(data);
           }
         }
       } catch (err) {
-        console.warn('Face detection fetch failed:', err);
+        if ((err as Error)?.name !== 'AbortError') {
+          console.warn('Face detection fetch failed:', err);
+        }
       }
     };
     fetchFace();
-    return () => { isMounted = false; };
+    return () => controller.abort();
   }, [videoId, previewClipIndex, clipStart, videoUrl, facecamPosition, streamerPreset]);
 
   // Calculate horizontal crop percentage (0 = leftmost edge, 50 = center, 100 = rightmost edge)

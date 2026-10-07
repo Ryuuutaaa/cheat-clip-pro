@@ -35,6 +35,32 @@ def get_effective_cookies_path() -> Optional[Path]:
 CASCADE_PATH = BASE_DIR / "haarcascade_frontalface_default.xml"
 CASCADES_DIR = BASE_DIR / "cascades"
 YUNET_MODEL_PATH = CASCADES_DIR / "face_detection_yunet.onnx"
+
+# Extracting a preview frame from a remote source can spend tens of seconds downloading and
+# still come back empty (yt-dlp bot checks, restricted videos). Remember recent failures so a
+# preview refresh serves the cached thumbnail instead of repeating that cost every time.
+FRAME_FAILURE_TTL_SEC = 600
+_frame_failures: Dict[str, float] = {}
+_frame_failures_lock = threading.Lock()
+
+
+def _frame_recently_failed(safe_id: str) -> bool:
+    now = time.monotonic()
+    with _frame_failures_lock:
+        failed_at = _frame_failures.get(safe_id)
+        if failed_at is None:
+            return False
+        if now - failed_at > FRAME_FAILURE_TTL_SEC:
+            _frame_failures.pop(safe_id, None)
+            return False
+        return True
+
+
+def _mark_frame_failure(safe_id: str) -> None:
+    with _frame_failures_lock:
+        _frame_failures[safe_id] = time.monotonic()
+
+
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 FONTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -3288,6 +3314,13 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0) ->
     if frame_path.exists() and frame_path.stat().st_size > 2000:
         return str(frame_path)
 
+    # A recent attempt for this video already burned a full download without yielding a
+    # frame. Serve the cached thumbnail until the TTL expires instead of re-downloading.
+    if _frame_recently_failed(safe_id):
+        thumb_path = frames_dir / f"thumb_{safe_id}.jpg"
+        if thumb_path.exists() and thumb_path.stat().st_size > 2000:
+            return str(thumb_path)
+
     # Cache miss → a new frame will be written; bound the cache size first.
     _prune_frame_cache(frames_dir)
 
@@ -3395,6 +3428,7 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0) ->
         return str(existing_frames[0])
 
     # 4. Instant high-res thumbnail fallback (guarantees frame preview NEVER gets stuck)
+    _mark_frame_failure(safe_id)
     try:
         for thumb_url in [
             f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg",
