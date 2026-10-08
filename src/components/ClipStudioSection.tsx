@@ -3564,8 +3564,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
                         const clip = selectedClips[clipIdx];
                         if (!clip) return null;
-                        const label = (rankLabels[clipIdx] || '').trim() ||
+                        const rawLabel = (rankLabels[clipIdx] || '').trim() ||
                           (clip.title_suggestion || clip.title || `Rank ${position + 1}`);
+                        const label = rawLabel.length > 30 ? `${rawLabel.slice(0, 29)}…` : rawLabel;
                         return (
                           <div key={`${clipIdx}-${position}`} className="rank-preview-item">
                             <span className={`rank-preview-num ${position < 3 ? `medal-${position + 1}` : ''}`}>{position + 1}.</span>
@@ -3832,7 +3833,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         <input
                           type="text"
                           className="batch-title-input"
-                          placeholder={fallbackLabel || t.studio.rankLabelPlaceholder}
+                          placeholder={(fallbackLabel.length > 30 ? `${fallbackLabel.slice(0, 29)}…` : fallbackLabel) || t.studio.rankLabelPlaceholder}
                           value={rankLabels[clipIdx] ?? ''}
                           maxLength={30}
                           onChange={(e) => setRankLabels(prev => ({ ...prev, [clipIdx]: e.target.value }))}
