@@ -2485,9 +2485,14 @@ def _pick_loudest_window(video_path: str, duration: float, window_sec: float) ->
         return 0.0
 
 
-def detect_active_speaker_track(video_path: str) -> Optional[Dict[str, Any]]:
+def analyze_active_speaker(video_path: str) -> Dict[str, Any]:
     """
-    Works out which face in a two-shot is doing the talking, or returns None when unclear.
+    Works out which face in a two-shot is doing the talking.
+
+    Returns the speaker box when one clearly wins, otherwise {"found": False, "reason": ...} where
+    the reason names the actual cause — too short, only one face, unreadable audio, nobody talking,
+    or two speakers equally active. Callers surface that instead of blaming a vague "no clear
+    speaker" for every refusal.
 
     Position cannot answer this — in an interview both faces are still while one mouth moves. Lip
     movement lasts tenths of a second, so frames are read consecutively at ACTIVE_SPEAKER_SAMPLE_FPS
@@ -2504,18 +2509,18 @@ def detect_active_speaker_track(video_path: str) -> Optional[Dict[str, Any]]:
 
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
-            return None
+            return {"found": False, "reason": "unreadable"}
         src_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         duration = total / src_fps if src_fps else 0.0
         if total < int(src_fps * 1.5) or duration < 1.5:
             cap.release()
-            return None
+            return {"found": False, "reason": "too_short"}
 
         detector = _create_yunet_detector()
         if detector is None:
             cap.release()
-            return None
+            return {"found": False, "reason": "no_detector"}
 
         step = max(1, int(round(src_fps / ACTIVE_SPEAKER_SAMPLE_FPS)))
         window_sec = min(ACTIVE_SPEAKER_WINDOW_SEC, duration)
@@ -2586,12 +2591,12 @@ def detect_active_speaker_track(video_path: str) -> Optional[Dict[str, Any]]:
 
         candidates = [t for t in tracks if len(t["motion"]) >= ACTIVE_SPEAKER_MIN_SAMPLES]
         if len(candidates) < 2:
-            return None
+            return {"found": False, "reason": "single_speaker", "faces_tracked": len(candidates)}
 
         envelope = _audio_envelope(str(video_path), start_sec, window_sec,
                                    max(len(t["motion"]) for t in candidates))
         if len(envelope) < ACTIVE_SPEAKER_MIN_SAMPLES:
-            return None
+            return {"found": False, "reason": "no_audio"}
 
         scored = []
         peak_motion = max(1e-6, max(float(np.mean(t["motion"])) for t in candidates))
@@ -2611,11 +2616,12 @@ def detect_active_speaker_track(video_path: str) -> Optional[Dict[str, Any]]:
         winner, runner = scored[0], scored[1]
         if float(np.mean(winner["motion"])) < ACTIVE_SPEAKER_MIN_MOTION:
             logger.info("Active speaker: nobody is clearly talking (all mouths still) — keeping centre")
-            return None
+            return {"found": False, "reason": "all_quiet", "motion": float(round(np.mean(winner["motion"]), 3))}
         if runner["score"] * ACTIVE_SPEAKER_WIN_MARGIN > winner["score"]:
             logger.info(f"Active speaker: two speakers are equally active "
                         f"({winner['score']:.2f} vs {runner['score']:.2f}) — keeping centre")
-            return None
+            return {"found": False, "reason": "tie",
+                    "scores": [float(round(winner["score"], 3)), float(round(runner["score"], 3))]}
 
         final_cx = float(winner["cx"])
         if 0.45 <= final_cx <= 0.55:
@@ -2625,6 +2631,7 @@ def detect_active_speaker_track(video_path: str) -> Optional[Dict[str, Any]]:
                     f"{runner['score']:.2f}, motion {float(np.mean(winner['motion'])):.2f})")
         return {
             "found": True,
+            "reason": "ok",
             "type": "active_speaker",
             "cx": float(round(final_cx, 3)),
             "cy": float(round(winner["cy"], 3)),
@@ -2635,7 +2642,7 @@ def detect_active_speaker_track(video_path: str) -> Optional[Dict[str, Any]]:
         }
     except Exception as e:
         logger.debug(f"Active speaker detection skipped: {e}")
-        return None
+        return {"found": False, "reason": "error"}
 
 
 def detect_speaker_face_box(
@@ -2823,17 +2830,20 @@ def detect_speaker_face_box(
                     if areas[0] >= 0.55 * areas[1]:
                         # Only a real video can reveal who is talking; a still frame keeps the centre
                         # but says so, so the UI can promise the decision will be made at render time.
+                        asd_reason = None
                         if wants_active_speaker and motion_source_path:
-                            speaker = detect_active_speaker_track(str(motion_source_path))
-                            if speaker:
-                                speaker["aspect"] = float(round(img_w / img_h, 4))
-                                return speaker
+                            analysis = analyze_active_speaker(str(motion_source_path))
+                            if analysis.get("found"):
+                                analysis["aspect"] = float(round(img_w / img_h, 4))
+                                return analysis
+                            asd_reason = analysis.get("reason")
                         mid_cx = (big_left["cx"] + big_right["cx"]) / 2.0
                         return {
                             "found": True,
                             "type": "multi_speaker",
                             "dual_speakers": True,
-                            "asd_pending": bool(wants_active_speaker),
+                            "asd_pending": bool(wants_active_speaker and not motion_source_path),
+                            "asd_reason": asd_reason,
                             "cx": float(round(mid_cx, 3)),
                             "cy": 0.35,
                             "w": 0.25,
@@ -2968,13 +2978,16 @@ def detect_speaker_face_box(
             if left_speakers and right_speakers:
                 # A two-shot: when the framing asks for it, let the mouths and the soundtrack decide
                 # who is talking instead of assuming the frame is symmetric.
+                asd_reason = None
                 if wants_active_speaker:
-                    speaker = detect_active_speaker_track(str(source_path))
-                    if speaker:
-                        speaker["aspect"] = float(round(source_w / source_h, 4)) if source_h else None
-                        return speaker
+                    analysis = analyze_active_speaker(str(source_path))
+                    if analysis.get("found"):
+                        analysis["aspect"] = float(round(source_w / source_h, 4)) if source_h else None
+                        return analysis
+                    asd_reason = analysis.get("reason")
                 mid_cx = (max(left_speakers, key=lambda c: len(c["pts"]))["cx"] + max(right_speakers, key=lambda c: len(c["pts"]))["cx"]) / 2.0
                 return {"found": True, "cx": float(round(mid_cx, 3)), "cy": 0.35, "w": 0.25, "h": 0.25, "dual_speakers": True,
+                        "asd_reason": asd_reason,
                         "aspect": float(round(source_w / source_h, 4)) if source_h else None}
 
             # Rank foreground candidates by: consistency * size * confidence * center prior

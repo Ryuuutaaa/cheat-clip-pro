@@ -436,7 +436,17 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       if (data && typeof data.cx === 'number') {
         setFaceBox(data);
         if (data.type !== 'active_speaker') {
-          setSpeakerError(data.reason === 'download_failed' ? t.studio.speakerDownloadBlocked : t.studio.speakerNoClear);
+          // Report the analyser's own reason instead of one vague message for every refusal.
+          const reasons: Record<string, string> = {
+            download_failed: t.studio.speakerDownloadBlocked,
+            all_quiet: t.studio.speakerAllQuiet,
+            tie: t.studio.speakerTie,
+            single_speaker: t.studio.speakerSingleFace,
+            no_audio: t.studio.speakerNoAudio,
+            too_short: t.studio.speakerTooShort,
+            unreadable: t.studio.speakerNoAudio
+          };
+          setSpeakerError(reasons[data.reason] || t.studio.speakerNoClear);
         }
       }
     } catch {

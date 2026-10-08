@@ -32,9 +32,9 @@ router = APIRouter(tags=["Media"])
 
 
 MAX_VIDEO_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024   # 4 GB
-# How much of a clip the on-demand speaker analysis fetches: the analyser only reads its first
-# seconds, so a short probe keeps the wait down.
-SPEAKER_PROBE_SECONDS = 6.0
+# How much of a clip the on-demand speaker analysis fetches. Long enough to contain real back and
+# forth — a six second probe can land entirely inside a pause, which reads as "nobody talking".
+SPEAKER_PROBE_SECONDS = 12.0
 MAX_AUDIO_UPLOAD_BYTES = 100 * 1024 * 1024        # 100 MB
 MAX_SFX_UPLOAD_BYTES = 50 * 1024 * 1024           # 50 MB
 MAX_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024         # 25 MB
@@ -522,7 +522,7 @@ async def analyze_speaker(
         box["cached"] = False
         return box
 
-    return {**box, "reason": box.get("reason", "no_clear_speaker"), "cached": False}
+    return {**box, "reason": box.get("asd_reason") or box.get("reason", "no_clear_speaker"), "cached": False}
 
 
 @router.get("/api/detect-face")
