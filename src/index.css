@@ -874,6 +874,87 @@ h1, h2, h3, h4 {
   border: 1px solid rgba(56, 189, 248, 0.25);
 }
 
+/* Live mock of the ranking frame: the same anchor the burnt-in overlay will use */
+.rank-preview-frame {
+  position: relative;
+  width: 168px;
+  aspect-ratio: 9 / 16;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: #05070c;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  box-shadow: var(--shadow-md);
+}
+
+.rank-preview-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.55;
+}
+
+.rank-preview-title {
+  position: absolute;
+  top: 6%;
+  left: 5%;
+  right: 5%;
+  text-align: center;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 800;
+  font-size: var(--text-xs);
+  line-height: 1.2;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+  text-transform: uppercase;
+}
+
+.rank-preview-list {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.rank-preview-list.pos-top_left,
+.rank-preview-list.pos-top_right { top: 28%; }
+.rank-preview-list.pos-bottom_left,
+.rank-preview-list.pos-bottom_right { bottom: 8%; flex-direction: column-reverse; }
+.rank-preview-list.pos-top_right,
+.rank-preview-list.pos-bottom_right { align-items: flex-end; text-align: right; }
+
+.rank-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+}
+
+.rank-preview-num {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 800;
+  font-size: 0.62rem;
+  color: #ececec;
+  flex-shrink: 0;
+}
+
+.rank-preview-num.medal-1 { color: #ffd700; }
+.rank-preview-num.medal-2 { color: #c0c0c0; }
+.rank-preview-num.medal-3 { color: #cd7f32; }
+
+.rank-preview-label {
+  font-size: 0.62rem;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .copy-mini-btn.has-text {
   width: auto;
   padding: 2px 8px;

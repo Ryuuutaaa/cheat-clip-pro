@@ -3337,6 +3337,44 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
             {rankEnabled && (
               <>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.9rem', flexWrap: 'wrap' }}>
+                  {/* Live mock of the final frame: the same layout the overlay will burn in */}
+                  <div className="rank-preview-frame">
+                    <img
+                      className="rank-preview-bg"
+                      alt=""
+                      src={`/api/clip-frame?video_id=${encodeURIComponent(videoId)}&timestamp=${clipStart}`}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankTitlePlaceholder}</div>
+                    <div className={`rank-preview-list pos-${rankPosition}`}>
+                      {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
+                        const clip = selectedClips[clipIdx];
+                        if (!clip) return null;
+                        const label = (rankLabels[clipIdx] || '').trim() ||
+                          (clip.title_suggestion || clip.title || `Rank ${position + 1}`);
+                        return (
+                          <div key={`${clipIdx}-${position}`} className="rank-preview-item">
+                            <span className={`rank-preview-num ${position < 3 ? `medal-${position + 1}` : ''}`}>{position + 1}.</span>
+                            <span className="rank-preview-label">{label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: '160px' }}>
+                    <div style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
+                      {t.studio.rankPreviewLabel}
+                    </div>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+                      {t.studio.rankPreviewHint}
+                    </p>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                      {Math.min(rankCount, rankOrder.length)} × {rankSeconds}s = {(Math.min(rankCount, rankOrder.length) * rankSeconds).toFixed(0)}s
+                    </div>
+                  </div>
+                </div>
+
                 <div className="batch-title-input-wrapper">
                   <input
                     type="text"

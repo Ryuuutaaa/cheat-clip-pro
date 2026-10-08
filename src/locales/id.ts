@@ -469,6 +469,8 @@ export const id: Translations = {
     rankPosBottomRight: "↘ Kanan bawah",
     rankLabelsLabel: "Label tiap peringkat — kosongkan untuk memakai judul klip:",
     rankLabelPlaceholder: "Label peringkat",
+    rankPreviewLabel: "Pratinjau framing langsung",
+    rankPreviewHint: "Beginilah posisi judul dan daftar peringkat di video akhir. Daftar muncul satu per satu mengikuti klipnya, dan tiga peringkat teratas dapat warna medali.",
     rankMoveUp: "Naikkan",
     rankMoveDown: "Turunkan",
     batchClipTitlesActivePreview: "Sedang Dipratinjau",
