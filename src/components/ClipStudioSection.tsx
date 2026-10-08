@@ -22,6 +22,7 @@ import type {
   HardwareAccelOption,
   HardwareAccelInfo,
   TranscriptLine,
+  HeatmapPoint,
 } from '../types';
 
 interface ClipStudioSectionProps {
@@ -38,6 +39,7 @@ interface ClipStudioSectionProps {
   onDismissProgress?: () => void;
   onRetryClip?: (clipIndex?: number) => void;
   transcript?: TranscriptLine[];
+  heatmap?: HeatmapPoint[];
   /** Rank page only: shows the rank-highlight card and skips clip-only defaults. */
   rankMode?: boolean;
 }
@@ -211,6 +213,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   onDismissProgress,
   onRetryClip,
   transcript,
+  heatmap,
   rankMode = false,
 }) => {
   const { t } = useLanguage();
@@ -234,6 +237,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankPosition, setRankPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('bottom_left');
   const [rankShowScores, setRankShowScores] = useState<'off' | 'on'>('off');
   const [rankOrder, setRankOrder] = useState<number[]>([]);
+  const [rankAutoOrder, setRankAutoOrder] = useState(false);
+  const [rankOrderBusy, setRankOrderBusy] = useState(false);
+  const [rankOrderError, setRankOrderError] = useState<string | null>(null);
   const [rankLabels, setRankLabels] = useState<Record<number, string>>({});
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>('9:16');
@@ -542,6 +548,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   }, [selectedClipsKey]);
 
   const moveRank = (position: number, delta: number) => {
+    setRankAutoOrder(false);   // a manual move takes over from the smart order
     setRankOrder(prev => {
       const next = [...prev];
       const target = position + delta;
@@ -3627,6 +3634,64 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   />
                   {t.studio.rankShowScores}
                 </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.76rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={rankAutoOrder}
+                    disabled={rankOrderBusy || selectedClips.length < 2}
+                    onChange={async e => {
+                      const on = e.target.checked;
+                      if (!on) {
+                        setRankAutoOrder(false);
+                        setRankOrderError(null);
+                        const bestFirst = [...selectedClips]
+                          .map((c, i) => ({ i, s: c.virality_score || 0 }))
+                          .sort((a, b) => b.s - a.s)
+                          .map(x => x.i);
+                        setRankOrder(bestFirst);
+                        return;
+                      }
+                      setRankOrderBusy(true);
+                      setRankOrderError(null);
+                      try {
+                        const body = {
+                          video_id: videoId,
+                          video_url: videoUrl,
+                          clips: selectedClips,
+                          transcript,
+                          heatmap_points: heatmap,
+                          clip_seconds: rankSecondsMode === 'auto' ? 0 : rankSeconds,
+                        };
+                        const resp = await resilientFetch('/api/rank-order', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(body),
+                        });
+                        const data = await resp.json();
+                        const order: number[] = (data.order || [])
+                          .sort((a: { rank: number }, b: { rank: number }) => a.rank - b.rank)
+                          .map((o: { clip_index: number }) => o.clip_index);
+                        if (order.length) {
+                          setRankOrder(order);
+                          setRankAutoOrder(true);
+                        } else {
+                          setRankOrderError(t.studio.rankAutoOrderFail);
+                          setRankAutoOrder(false);
+                        }
+                      } catch {
+                        setRankOrderError(t.studio.rankAutoOrderFail);
+                        setRankAutoOrder(false);
+                      } finally {
+                        setRankOrderBusy(false);
+                      }
+                    }}
+                  />
+                  {rankOrderBusy ? t.studio.rankAutoOrderBusy : t.studio.rankAutoOrder}
+                </label>
+                {rankOrderError && (
+                  <p style={{ fontSize: '0.7rem', color: '#f87171', margin: '-0.4rem 0 0.7rem' }}>{rankOrderError}</p>
+                )}
 
                 <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>{t.studio.rankLabelsLabel}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '260px', overflowY: 'auto' }}>

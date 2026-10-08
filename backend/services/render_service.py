@@ -33,13 +33,14 @@ BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
 # an accepted rank by more than this is dropped, the usual threshold for temporal NMS.
 RANK_NMS_IOU = 0.3
 
-# AUTO duration for a ranked clip: end on the first sentence boundary at least this far past the hook,
-# never longer than the max, and fall back to the nominal length when the transcript cannot say.
-# Ranked clips run 10-15 seconds; a little longer is fine, shorter is not.
-RANK_AUTO_MIN_SECONDS = 10.0
-RANK_AUTO_MAX_SECONDS = 15.0
-RANK_AUTO_FALLBACK_SECONDS = 10.0
-RANK_MIN_SECONDS = 10.0
+from backend.utils.rank_signals import (  # noqa: E402
+    RANK_AUTO_FALLBACK_SECONDS,
+    RANK_AUTO_MAX_SECONDS,
+    RANK_AUTO_MIN_SECONDS,
+    RANK_MIN_SECONDS,
+    compute_multimodal_order,
+    rank_window,
+)
 
 
 def _temporal_iou(a: tuple, b: tuple) -> float:
@@ -367,44 +368,6 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     seconds = max(RANK_MIN_SECONDS, min(30.0, float(rank_settings.clip_seconds or RANK_AUTO_FALLBACK_SECONDS))) if not auto_seconds else 0.0
     transcript_lines = transcript or []
 
-    def auto_window(start: float, clip_end: float) -> float:
-        """End of the first spoken line that finishes at least AUTO_MIN after the hook."""
-        first_past = None
-        for line in transcript_lines:
-            try:
-                line_end = float(line.get("end") or 0.0)
-            except (TypeError, ValueError):
-                continue
-            if line_end <= start:
-                continue
-            length = line_end - start
-            if length < RANK_AUTO_MIN_SECONDS:
-                continue
-            if line_end <= start + RANK_AUTO_MAX_SECONDS:
-                return min(clip_end, line_end)
-            if first_past is None:
-                first_past = line_end
-        if first_past is not None:
-            # No clean boundary inside the window: take the first one past it with a small grace so
-            # the cut lands between words rather than mid-word, else cap at the maximum length.
-            if first_past <= start + RANK_AUTO_MAX_SECONDS + 3.0:
-                return min(clip_end, first_past)
-            return min(clip_end, start + RANK_AUTO_MAX_SECONDS)
-        return min(clip_end, start + RANK_AUTO_FALLBACK_SECONDS)
-
-    def rank_window(clip: dict) -> tuple:
-        """The (start, end) the ranked clip will actually be cut to."""
-        c_start = float(clip.get("start_time") or 0.0)
-        c_end = float(clip.get("end_time") or (c_start + (seconds or 10.0)))
-        hook = clip.get("hook_time")
-        begin = float(hook) if isinstance(hook, (int, float)) and c_start <= float(hook) <= max(c_start, c_end - 1.0) else c_start
-        if auto_seconds:
-            finish = auto_window(begin, c_end)
-        else:
-            begin = min(begin, max(c_start, c_end - seconds))
-            finish = max(min(c_end, begin + seconds), begin + 1.0)
-        return begin, finish
-
     # Rank order: explicit overrides from the UI win, otherwise the best virality score ranks first.
     # Each entry carries the number shown on screen, so the video can play in countdown order while
     # the numbering stays 1..N.
@@ -424,39 +387,32 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         # are not shipped, so those terms stay implicit in the LLM score.
         if os.environ.get("RANK_USE_MULTIMODAL") == "1":
             try:
-                from backend.utils.rank_signals import audio_score, heatmap_score, rms_of_window, text_score
-
                 raw_w = [float(x) for x in (os.environ.get("RANK_SCORE_WEIGHTS") or "0.55,0.15,0.15,0.15").split(",")]
                 if len(raw_w) == 4:
                     total_w = sum(raw_w) or 1.0
-                    w_llm, w_text, w_audio, w_engage = [x / total_w for x in raw_w]
-                    windows = [rank_window(c) for c in clips]
+                    weights = tuple(x / total_w for x in raw_w)
 
                     source_path = None
                     if str(target_url).startswith("/api/video/"):
                         candidate = UPLOADS_DIR / os.path.basename(str(target_url).split("?")[0])
                         if candidate.exists():
                             source_path = str(candidate)
-                    rms = await asyncio.to_thread(
-                        lambda: [rms_of_window(source_path, s, e) for s, e in windows]
-                    ) if source_path else [None] * len(clips)
-                    audio = audio_score(rms)
-                    text_s = [text_score(transcript_lines, s, e) for s, e in windows]
-                    engage = [heatmap_score(heatmap_points or [], s, e) for s, e in windows]
 
-                    scored = []
-                    for i, clip in enumerate(clips):
-                        llm = float(clip.get("virality_score") or 0.0) / 100.0
-                        final = w_llm * llm + w_text * text_s[i] + w_audio * audio[i] + w_engage * engage[i]
-                        scored.append((final, i))
-                    scored.sort()
-                    ordered = [(i, clips[i], "", len(scored) - pos) for pos, (_, i) in enumerate(scored[:count])]
-                    logger.info(f"Multimodal ranking order: {[i for _, i in scored[:count]]}")
+                    scored = await asyncio.to_thread(
+                        compute_multimodal_order,
+                        clips, transcript_lines, heatmap_points, source_path, count, weights,
+                        auto_seconds, seconds,
+                    )
+                    # scored is best-first; the video plays weakest first as a countdown
+                    asc = list(reversed(scored))
+                    ordered = [(i, clips[i], "", len(asc) - pos) for pos, (_, i) in enumerate(asc)]
+                    logger.info(f"Multimodal ranking order: {[i for _, i in asc]}")
             except Exception as e:
                 logger.warning(f"Multimodal ranking failed, using the LLM score instead: {e}")
         if not ordered:
-            ranked = sorted(range(len(clips)), key=lambda i: float(clips[i].get("virality_score") or 0), reverse=True)
-            ordered = [(i, clips[i], "", pos + 1) for pos, i in enumerate(ranked[:count])]
+            # Default order: weakest first, the winner last — the countdown the UI also sends.
+            ranked = sorted(range(len(clips)), key=lambda i: float(clips[i].get("virality_score") or 0))
+            ordered = [(i, clips[i], "", len(ranked) - pos) for pos, i in enumerate(ranked[:count])]
     ordered = ordered[:count]
 
     # Temporal NMS: the analysis is asked not to overlap clips, but nothing enforced it, and two ranks
@@ -465,7 +421,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     kept, kept_spans = [], []
     for candidate in ordered:
         _, candidate_clip, _, _ = candidate
-        span = rank_window(candidate_clip)
+        span = rank_window(candidate_clip, transcript_lines, auto_seconds, seconds)
         if any(_temporal_iou(span, seen) > RANK_NMS_IOU for seen in kept_spans):
             logger.info(f"Rank NMS: dropped '{candidate_clip.get('title')}' — its window overlaps a higher-ranked moment")
             continue
@@ -499,7 +455,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     segments: List[Dict[str, Any]] = []
     elapsed = 0.0
     for rank_pos, (src_idx, clip, label, shown_rank) in enumerate(ordered):
-        begin, finish = rank_window(clip)
+        begin, finish = rank_window(clip, transcript_lines, auto_seconds, seconds)
 
         trimmed = dict(clip)
         trimmed["start_time"] = begin

@@ -8,7 +8,7 @@ import uuid
 import zipfile
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
 from backend.utils.text import build_clip_metadata_text
@@ -16,6 +16,7 @@ from backend.utils.text import build_clip_metadata_text
 from backend.config import (
     ACTIVE_ENCODER_NAME,
     EXPORTS_DIR,
+    UPLOADS_DIR,
     detect_hardware_support,
     logger,
 )
@@ -31,8 +32,51 @@ from backend.services.render_service import (
     process_batch_retry,
     prune_render_registry,
 )
+from backend.utils.rank_signals import compute_multimodal_order
 
 router = APIRouter(tags=["Render"])
+
+
+@router.post("/api/rank-order")
+async def compute_rank_order(payload: Dict = Body(...)):
+    """Returns the multimodal ranking order for the given clips, best first with rank numbers.
+
+    Same scoring the renderer applies when RANK_USE_MULTIMODAL=1, so the UI can show the exact
+    order the video will play. Falls back to the LLM virality score when the flag is off.
+    """
+    clips = payload.get("clips") or []
+    if not clips:
+        raise HTTPException(status_code=400, detail="No clips provided for ranking")
+    transcript = payload.get("transcript") or []
+    heatmap = payload.get("heatmap_points") or []
+    auto_seconds = float(payload.get("clip_seconds") or 0.0) <= 0.0
+    seconds = float(payload.get("clip_seconds") or 10.0) or 10.0
+
+    source_path = None
+    target_url = (payload.get("video_url") or "").strip()
+    if target_url.startswith("/api/video/"):
+        candidate = UPLOADS_DIR / os.path.basename(target_url.split("?")[0])
+        if candidate.exists():
+            source_path = str(candidate)
+
+    if os.environ.get("RANK_USE_MULTIMODAL") == "1":
+        raw_w = [float(x) for x in (os.environ.get("RANK_SCORE_WEIGHTS") or "0.55,0.15,0.15,0.15").split(",")]
+        weights = tuple(x / (sum(raw_w) or 1.0) for x in raw_w) if len(raw_w) == 4 else (0.55, 0.15, 0.15, 0.15)
+        scored = await asyncio.to_thread(
+            compute_multimodal_order, clips, transcript, heatmap, source_path,
+            len(clips), weights, auto_seconds, seconds,
+        )
+    else:
+        scored = sorted(
+            ((float(c.get("virality_score") or 0.0) / 100.0, i) for i, c in enumerate(clips)),
+            key=lambda t: -t[0],
+        )
+
+    order = [
+        {"clip_index": idx, "rank": pos + 1, "score": round(float(score), 4)}
+        for pos, (score, idx) in enumerate(scored)
+    ]
+    return {"order": order, "multimodal": os.environ.get("RANK_USE_MULTIMODAL") == "1"}
 
 
 @router.post("/api/render-batch")

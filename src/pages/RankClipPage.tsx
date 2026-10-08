@@ -450,6 +450,7 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
           videoUrl={result.video_url || url}
           videoId={result.video_id}
           transcript={result.transcript}
+          heatmap={result.heatmap}
           allClips={result.clips}
           markedClips={markedClipsList}
           activeClip={markedClipsList[0] || null}

@@ -141,3 +141,87 @@ def heatmap_score(points: List[Dict], window_start: float, window_end: float) ->
     if not vals:
         return 0.0
     return 0.7 * (sum(vals) / len(vals)) + 0.3 * max(vals)
+
+
+# Ranked clips run 10-15 seconds; a little longer is fine, shorter is not.
+RANK_AUTO_MIN_SECONDS = 10.0
+RANK_AUTO_MAX_SECONDS = 15.0
+RANK_AUTO_FALLBACK_SECONDS = 10.0
+RANK_MIN_SECONDS = 10.0
+
+
+def auto_window_end(transcript_lines: List[Dict], start: float, clip_end: float) -> float:
+    """End of the first spoken line that finishes at least AUTO_MIN after the hook."""
+    first_past = None
+    for line in transcript_lines or []:
+        try:
+            line_end = float(line.get("end") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if line_end <= start:
+            continue
+        length = line_end - start
+        if length < RANK_AUTO_MIN_SECONDS:
+            continue
+        if line_end <= start + RANK_AUTO_MAX_SECONDS:
+            return min(clip_end, line_end)
+        if first_past is None:
+            first_past = line_end
+    if first_past is not None:
+        # No clean boundary inside the window: take the first one past it with a small grace so
+        # the cut lands between words rather than mid-word, else cap at the maximum length.
+        if first_past <= start + RANK_AUTO_MAX_SECONDS + 3.0:
+            return min(clip_end, first_past)
+        return min(clip_end, start + RANK_AUTO_MAX_SECONDS)
+    return min(clip_end, start + RANK_AUTO_FALLBACK_SECONDS)
+
+
+def rank_window(
+    clip: Dict,
+    transcript_lines: Optional[List[Dict]] = None,
+    auto_seconds: bool = False,
+    seconds: float = RANK_AUTO_FALLBACK_SECONDS,
+) -> tuple:
+    """The (start, end) a ranked clip is actually cut to: the hook plus the configured length,
+    or the first sentence boundary when AUTO is on. Single source of truth for the renderer and
+    the order preview."""
+    c_start = float(clip.get("start_time") or 0.0)
+    c_end = float(clip.get("end_time") or (c_start + (seconds or RANK_AUTO_FALLBACK_SECONDS)))
+    hook = clip.get("hook_time")
+    begin = float(hook) if isinstance(hook, (int, float)) and c_start <= float(hook) <= max(c_start, c_end - 1.0) else c_start
+    if auto_seconds:
+        finish = auto_window_end(transcript_lines, begin, c_end)
+    else:
+        begin = min(begin, max(c_start, c_end - seconds))
+        finish = max(min(c_end, begin + seconds), begin + 1.0)
+    return begin, finish
+
+
+def compute_multimodal_order(
+    clips: List[Dict],
+    transcript_lines: Optional[List[Dict]],
+    heatmap_points: Optional[List[Dict]],
+    source_path: Optional[str],
+    count: int,
+    weights: tuple = (0.55, 0.15, 0.15, 0.15),
+    auto_seconds: bool = False,
+    seconds: float = RANK_AUTO_FALLBACK_SECONDS,
+) -> List[tuple]:
+    """Scores every clip with the multimodal signals and returns (score, index) DESC — best first."""
+    w_llm, w_text, w_audio, w_engage = weights
+    windows = [rank_window(c, transcript_lines, auto_seconds, seconds) for c in clips]
+    rms = [rms_of_window(source_path, s, e) for s, e in windows] if source_path else [None] * len(clips)
+    audio = audio_score(rms)
+    scored: List[tuple] = []
+    for i, clip in enumerate(clips):
+        s, e = windows[i]
+        llm = float(clip.get("virality_score") or 0.0) / 100.0
+        final = (
+            w_llm * llm
+            + w_text * text_score(transcript_lines or [], s, e)
+            + w_audio * audio[i]
+            + w_engage * heatmap_score(heatmap_points or [], s, e)
+        )
+        scored.append((final, i))
+    scored.sort(key=lambda t: -t[0])
+    return scored[:count]
