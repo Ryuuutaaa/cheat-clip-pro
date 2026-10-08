@@ -67,8 +67,18 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     unMute?: () => void;
     destroy?: () => void;
   } | null>(null);
+
+  const isDirect = Boolean(
+    videoUrl && (
+      videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') ||
+      videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') ||
+      videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')
+    )
+  );
+  // Direct videos autoplay muted; YouTube waits for a click, so the button never lies about the
+  // state and the first press always means "play".
   const [activeIdx, setActiveIdx] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(isDirect);
   const [muted, setMuted] = useState(true);
   const [playerError, setPlayerError] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -86,14 +96,6 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     if (textCase === 'lowercase') return text.toLowerCase();
     return text.toLowerCase().replace(/(?:^|\s|\b)\w/g, c => c.toUpperCase());
   };
-
-  const isDirect = Boolean(
-    videoUrl && (
-      videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') ||
-      videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') ||
-      videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')
-    )
-  );
   const active = entries.length > 0 ? entries[Math.min(activeIdx, entries.length - 1)] : null;
   // The newest rank sits at the bottom of the list, so the accumulated entries render top-first.
   const shown = [...entries.slice(0, activeIdx + 1)].reverse();
@@ -172,13 +174,21 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
         unMute?: () => void;
         destroy?: () => void;
       };
-      ytRef.current = new Player('rank-live-yt-slot', {
+      // A fresh target node every boot: the API replaces it with the iframe, so reusing the same
+      // node across StrictMode's double mount would leave the second boot without an element.
+      const wrapEl = document.querySelector('.rank-live-yt-wrap');
+      const slot = document.createElement('div');
+      slot.id = 'rank-live-yt-slot';
+      wrapEl?.replaceChildren(slot);
+      ytRef.current = new Player(slot.id, {
         videoId,
         playerVars: { autoplay: 0, controls: 0, playsinline: 1, rel: 0 },
         events: {
-          onReady: (e: { target: { seekTo: (s: number, a: boolean) => void; playVideo: () => void } }) => {
+          onReady: (e: { target: { seekTo: (s: number, a: boolean) => void; playVideo: () => void; mute: () => void } }) => {
             if (!active) return;
             try {
+              // Muted autoplay is allowed without a gesture, so the preview starts by itself.
+              e.target.mute();
               e.target.seekTo(active.start, true);
               e.target.playVideo();
             } catch {
@@ -215,6 +225,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
         // already gone
       }
       ytRef.current = null;
+      document.querySelector('.rank-live-yt-wrap')?.replaceChildren();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirect, videoId]);
