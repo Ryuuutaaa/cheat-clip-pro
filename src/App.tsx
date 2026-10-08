@@ -4513,6 +4513,29 @@ Transcript:
                               </div>
                             </div>
                           )}
+                          {clip.seo_keywords && clip.seo_keywords.length > 0 && (
+                            <div className="suggestion-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div style={{ flex: 1 }}>
+                                <span className="suggestion-label">{t.results.seoKeywordsPrefix}</span>{' '}
+                                <span className="suggestion-value">
+                                  {clip.seo_keywords.map((keyword, kwIdx) => (
+                                    <span key={kwIdx} className="keyword-chip">{keyword}</span>
+                                  ))}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                className="copy-mini-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCopyText((clip.seo_keywords || []).join(', '), t.results.seoKeywordsLabel);
+                                }}
+                                title={t.results.copyKeywordsTooltip}
+                              >
+                                📋
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
 

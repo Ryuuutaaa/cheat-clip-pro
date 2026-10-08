@@ -56,6 +56,7 @@ async def start_batch_render(request: RenderBatchRequest, background_tasks: Back
             # Carried through so the batch archive can ship upload-ready metadata per clip.
             "caption_suggestion": (c.get("caption_suggestion") or "").strip(),
             "hashtag_suggestion": (c.get("hashtag_suggestion") or "").strip(),
+            "seo_keywords": c.get("seo_keywords") or [],
             "status": "pending",
             "progress_percent": 0
         })
@@ -206,6 +207,7 @@ def download_batch_zip(batch_id: str):
                                 c.get("title") or clean_title,
                                 c.get("caption_suggestion", ""),
                                 c.get("hashtag_suggestion", ""),
+                                c.get("seo_keywords") or [],
                             ))
             except Exception as e:
                 logger.error(f"Error packaging batch zip on the fly: {e}")

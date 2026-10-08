@@ -2,7 +2,7 @@ from typing import List, Optional, Union
 from pydantic import BaseModel, Field
 
 class ViralClip(BaseModel):
-    title: str = Field(description="Catchy clip title, max 8 words. MUST NEVER use first-person pronouns ('I', 'me', 'my', 'saya', 'aku'). Attribute to the speaker/host by name, role, or use objective framing.")
+    title: str = Field(description="Search-friendly clip title, max 8 words, containing the primary SEO keyword. MUST NEVER use first-person pronouns ('I', 'me', 'my', 'saya', 'aku'). Attribute to the speaker/host by name, role, or use objective framing.")
     start_time: float = Field(description="Clip start in seconds, aligned to a sentence boundary")
     end_time: float = Field(description="Clip end in seconds, aligned to a sentence boundary")
     hook_time: float = Field(description="Absolute timestamp in seconds from video start where the potential hook occurs inside this clip range (must be >= start_time and <= end_time)")
@@ -11,18 +11,20 @@ class ViralClip(BaseModel):
     transcript: str = Field(description="Spoken text of the clip")
     title_suggestion: str = Field(default="", description="Catchy alternative title suggestion. MUST NEVER use first-person pronouns ('I', 'me', 'my'). Attribute to speaker or objective topic.")
     caption_suggestion: str = Field(default="", description="Engaging social media caption suggestion attributing quotes or insights to the speaker.")
-    hashtag_suggestion: str = Field(default="", description="AT LEAST 4 hashtags for this clip, space separated, lowercase, no duplicates. Mix universal reach tags (#fyp #viral #shorts) with tags specific to this clip's topic, speaker and audience, written in the video's language. Add more (up to 10) when the clip covers several distinct topics.")
+    hashtag_suggestion: str = Field(default="", description="AT LEAST 4 hashtags for this clip, space separated, lowercase, no duplicates. Mix universal reach tags (#fyp #viral #shorts) with tags specific to this clip's topic, speaker and audience, written in the video's language. Build 2-3 of them from the seo_keywords so the same terms people search for are also tagged. Add more (up to 10) when the clip covers several distinct topics.")
+    seo_keywords: List[str] = Field(default_factory=list, description="3-6 phrases a real viewer would TYPE into a search box to find this clip's content, in the video's language, without '#' and without quotes. Order them by likely search volume, most searched first.")
 
 class ViralClipGemini(BaseModel):
-    title: str = Field(description="Catchy clip title, max 8 words, in the EXACT SAME LANGUAGE as the video transcript (STRICT ZERO-TRANSLATION RULE: English is English, Indonesian is Indonesian, Spanish is Spanish). NEVER use first-person pronouns ('I', 'me', 'my', 'myself', 'aku', 'saya'). Attribute to the person speaking by name, host/guest title, or use third-person objective framing so it does not look like the user's opinion.")
+    title: str = Field(description="Title that is both searchable AND catchy, max 8 words, in the EXACT SAME LANGUAGE as the video transcript (STRICT ZERO-TRANSLATION RULE: English is English, Indonesian is Indonesian, Spanish is Spanish). MUST contain the primary seo_keyword written naturally, ideally at the start, because that is what viewers type when looking for this. NEVER use first-person pronouns ('I', 'me', 'my', 'myself', 'aku', 'saya'). Attribute to the person speaking by name, host/guest title, or use third-person objective framing so it does not look like the user's opinion.")
     start_time: float = Field(description="Clip start in seconds, aligned to a sentence boundary")
     end_time: float = Field(description="Clip end in seconds, aligned to a sentence boundary")
     hook_time: float = Field(description="Absolute timestamp in seconds from video start where the potential hook occurs inside this clip range (must be >= start_time and <= end_time)")
     virality_score: int = Field(description="Virality score 1-100")
     key_quotes: List[str] = Field(description="1-2 verbatim quotes directly spoken in the clip, in the original language of the video without translation")
+    seo_keywords: List[str] = Field(default_factory=list, description="3-6 phrases a real viewer would TYPE into a search box to find this clip's content, in the video's language, without '#' and without quotes. Order them by likely search volume, most searched first. Think: the topic, the speaker, and the problem or question being answered.")
     title_suggestion: str = Field(default="", description="Catchy alternative title suggestion in the EXACT SAME LANGUAGE as the video transcript (DO NOT translate). STRICT RULE: NEVER use first-person ('I', 'me', 'my', 'saya', 'aku'). Attribute to the speaker/host/guest by name or topic.")
     caption_suggestion: str = Field(default="", description="Engaging social media caption suggestion written in the EXACT SAME LANGUAGE as the video transcript (DO NOT translate to any other language), attributing insights or story to the speaker.")
-    hashtag_suggestion: str = Field(default="", description="AT LEAST 4 hashtags for this clip, space separated, lowercase, no duplicates. Mix reach tags (#fyp #viral #shorts) with tags specific to THIS clip's topic, speaker and audience. Add more (up to 10) when the clip covers several distinct topics.")
+    hashtag_suggestion: str = Field(default="", description="AT LEAST 4 hashtags for this clip, space separated, lowercase, no duplicates. Mix reach tags (#fyp #viral #shorts) with tags specific to THIS clip's topic, speaker and audience. At least 2 must be built from the seo_keywords so the terms people search are also tagged. Add more (up to 10) when the clip covers several distinct topics.")
 
 class VideoAnalysis(BaseModel):
     summary: str = Field(description="1-2 sentence video summary in the EXACT SAME LANGUAGE as the video transcript (STRICT ZERO-TRANSLATION RULE: English stays English, Indonesian stays Indonesian, Spanish stays Spanish), followed by 2-4 relevant hashtags")

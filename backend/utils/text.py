@@ -189,18 +189,41 @@ def normalize_clip_hashtags(raw: str, minimum: int = 4, maximum: int = 10) -> st
     return " ".join(found[:maximum])
 
 
-def build_clip_metadata_text(title: str, caption: str = "", hashtags: str = "") -> str:
+def normalize_seo_keywords(raw, maximum: int = 6) -> List[str]:
+    """
+    Cleans the search phrases a clip was built around.
+
+    Keeps the model's order (most searched first), trims stray '#' and quotes, drops blanks and
+    duplicates, and caps the list so nothing dumps a paragraph into the upload description.
+    """
+    if isinstance(raw, str):
+        raw = [part for part in re.split(r"[,\n;]", raw)]
+    found: List[str] = []
+    for item in raw or []:
+        phrase = re.sub(r"\s+", " ", str(item)).strip().strip("#").strip().strip('"').strip("'").strip()
+        if not phrase or len(phrase) > 70:
+            continue
+        low = phrase.lower()
+        if low not in [f.lower() for f in found]:
+            found.append(phrase)
+    return found[:maximum]
+
+
+def build_clip_metadata_text(title: str, caption: str = "", hashtags: str = "", keywords=None) -> str:
     """
     Upload-ready metadata for one clip, shipped next to its rendered MP4.
 
     The layout is deliberate: the title on the first line (what an upload form asks for first),
-    then the caption, then the hashtags alone on the last line so the tag block can be copied by
-    itself. Hashtags are stripped from the caption to avoid shipping them twice.
+    then the caption, the search keywords, then the hashtags alone on the last line so the tag block
+    can be copied by itself. Hashtags are stripped from the caption to avoid shipping them twice.
     """
     lines = [(title or "").strip(), ""]
     caption_clean = re.sub(r"#\w+", "", caption or "").strip()
     if caption_clean:
         lines.extend([caption_clean, ""])
+    phrases = normalize_seo_keywords(keywords)
+    if phrases:
+        lines.extend([f"Keywords: {', '.join(phrases)}", ""])
     lines.append(normalize_clip_hashtags(hashtags))
     return "\n".join(lines).strip() + "\n"
 

@@ -276,6 +276,7 @@ def update_batch_summary_and_zip(batch_id: str, settings: RenderSettingsModel):
                             c.get("title") or formatted_name,
                             c.get("caption_suggestion", ""),
                             c.get("hashtag_suggestion", ""),
+                            c.get("seo_keywords") or [],
                         ))
             batch["zip_url"] = f"/api/download-batch-zip/{batch_id}"
         else:

@@ -22,6 +22,7 @@ export interface ViralClip {
   title_suggestion?: string;
   caption_suggestion?: string;
   hashtag_suggestion?: string;
+  seo_keywords?: string[];
 }
 
 export interface AnalyzeResponse {

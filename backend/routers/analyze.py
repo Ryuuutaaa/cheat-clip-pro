@@ -57,6 +57,7 @@ from backend.utils.text import (
     extract_video_id,
     lowercase_hashtags_in_string,
     normalize_clip_hashtags,
+    normalize_seo_keywords,
     parse_manual_subtitles,
     sanitize_first_person_title,
 )
@@ -832,13 +833,15 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
             f"   - Even if the user's prompt or search query was written in another language, your output MUST REMAIN 100% IN {lang_name.upper()}.\n"
             f"2. Strict field requirements in {lang_name.upper()}:\n"
             f"   - `summary`: In {lang_name.upper()}.\n"
-            f"   - `title`: Catchy title in {lang_name.upper()}, max 8 words.\n"
+            f"   - `title`: Title that is SEARCHABLE and catchy in {lang_name.upper()}, max 8 words.\n"
+            f"   - `seo_keywords`: 3-6 phrases a real viewer would TYPE into a search box to find THIS clip, in {lang_name.upper()}, most searched first, without '#' and without quotes.\n"
             f"   - `title_suggestion`: Alternative title in {lang_name.upper()}.\n"
             f"   - `caption_suggestion`: Engaging social caption in {lang_name.upper()}.\n"
             f"   - `hashtag_suggestion`: MINIMUM 4 hashtags for THIS clip, space separated, lowercase, no duplicates — nothing else in this field.\n"
             f"     Build them for discovery on TikTok / Reels / Shorts:\n"
             f"       * 1-2 broad reach tags that carry distribution (e.g. #fyp #viral #shorts #foryou).\n"
             f"       * 2-4 tags naming THIS clip's specific topic, claim or subject, written in {lang_name.upper()}.\n"
+            f"       * At least 2 of them MUST come from `seo_keywords`, squashed into one tag each (\"cara mengatasi overthinking\" -> #caramengatasioverthinking).\n"
             f"       * 1-2 tags for the audience, field or speaker (profession, community, or the speaker's name).\n"
             f"     Use 4 tags for a single-topic clip, up to 10 when the clip covers several distinct topics.\n"
             f"     NEVER invent brand names, NEVER use banned/spammy tags, and NEVER repeat a tag.\n"
@@ -847,6 +850,17 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
             f"{duration_instruction}\n\n"
             f"{clip_count_instruction}\n\n"
             f"{focus_instruction}"
+            f"SEO RULES — WORK IN THIS ORDER, KEYWORDS FIRST:\n"
+            f"1. For each clip decide the 3-6 phrases a viewer would actually type to find this content. "
+            f"People search the TOPIC, the PERSON and the PROBLEM ('kenapa aku selalu lelah kerja', 'dokter jimmy trauma'), "
+            f"not the punchline and not a full sentence. Write them into `seo_keywords`, most searched first.\n"
+            f"2. Write `title` using the FIRST seo_keyword, ideally as the opening words, then make it interesting. "
+            f"A title that reads like a search query still wins, as long as it stays natural.\n"
+            f"3. Keep `title` short enough to survive truncation (aim for 60 characters or fewer, 8 words maximum). "
+            f"YouTube cuts long titles on mobile and search results clip the tail, where the keyword often sits.\n"
+            f"4. NO keyword stuffing, NO ALL CAPS, NO overpromising clickbait. A title that does not deliver "
+            f"loses retention, and retention costs more reach than the extra click is worth.\n"
+            f"5. `caption_suggestion` should read like a person wrote it and naturally mention one or two of the keywords.\n\n"
             f"CRITICAL TITLE & ATTRIBUTION RULES (NO FIRST-PERSON 'I' OR 'ME'):\n"
             f"1. NEVER write clip titles or title suggestions using first-person pronouns ('I', 'me', 'my', 'mine', 'myself', or equivalents in other languages such as 'saya', 'aku', 'gue')!\n"
             f"2. The user posting or curating these clips is a third-party editor, NOT the person speaking in the video. Titles must NEVER make it look like the clip is expressing the user's personal opinion, story, or reaction (e.g. NEVER write 'Why I think this is bad', 'How I made $100K', 'My biggest mistake', or 'I was shocked' / in Indonesian: NEVER 'Kenapa saya...', 'Cara aku...', 'Opini gue...').\n"
@@ -1257,6 +1271,7 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
             # Ensure hashtags are always lowercase and always usable: at least 4 per clip.
             caption_sug = lowercase_hashtags_in_string(raw_clip.get('caption_suggestion', ''))
             hashtag_sug = normalize_clip_hashtags(raw_clip.get('hashtag_suggestion', ''))
+            seo_kws = normalize_seo_keywords(raw_clip.get('seo_keywords'))
             
             final_clips.append(ViralClip(
                 title=sanitize_first_person_title(raw_clip.get('title', ''), channel, lang=lang_code),
@@ -1268,7 +1283,8 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
                 transcript=" ".join(clip_lines),
                 title_suggestion=sanitize_first_person_title(raw_clip.get('title_suggestion', ''), channel, lang=lang_code),
                 caption_suggestion=caption_sug,
-                hashtag_suggestion=hashtag_sug
+                hashtag_suggestion=hashtag_sug,
+                seo_keywords=seo_kws
             ))
 
         # Enforce max constraint of ~200 clips for auto clip count

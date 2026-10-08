@@ -862,6 +862,18 @@ h1, h2, h3, h4 {
   border: 1px solid rgba(168, 85, 247, 0.25);
 }
 
+/* Search phrases a clip was built around, shown apart from the hashtags they feed */
+.keyword-chip {
+  display: inline-block;
+  margin: 0 0.3rem 0.25rem 0;
+  padding: 0.1rem 0.5rem;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.10);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
 .copy-mini-btn.has-text {
   width: auto;
   padding: 2px 8px;
