@@ -119,6 +119,12 @@ export interface RenderSettings {
     clipSeconds: number;
     positionMode: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
     showScores?: boolean;
+    offset_x?: number;
+    offset_y?: number;
+    spacing_y?: number;
+    scale?: number;
+    label_weight?: string;
+    max_label_chars?: number;
     ranks: { clip_index: number; label: string; rank?: number }[];
   };
   // Background Music

@@ -506,6 +506,12 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         show_numbers=bool(rank_settings.show_numbers),
         total_seconds=elapsed,
         show_progress_bars=bool(getattr(rank_settings, "show_progress_bars", True)),
+        max_label_chars=int(getattr(rank_settings, "max_label_chars", 30) or 30),
+        spacing_y=int(getattr(rank_settings, "spacing_y", 0) or 0),
+        offset_x=int(getattr(rank_settings, "offset_x", 0) or 0),
+        offset_y=int(getattr(rank_settings, "offset_y", 0) or 0),
+        scale=float(getattr(rank_settings, "scale", 1.0) or 1.0),
+        label_weight=str(getattr(rank_settings, "label_weight", "bold") or "bold"),
     )
     out_name = f"ranking_{batch_id}.mp4"
     out_path = str(EXPORTS_DIR / out_name)

@@ -237,6 +237,11 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankPosition, setRankPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('bottom_left');
   const [rankShowScores, setRankShowScores] = useState<'off' | 'on'>('off');
   const [rankTitleBusy, setRankTitleBusy] = useState(false);
+  const [rankSpacingY, setRankSpacingY] = useState(0);
+  const [rankOffsetX, setRankOffsetX] = useState(0);
+  const [rankOffsetY, setRankOffsetY] = useState(0);
+  const [rankScale, setRankScale] = useState(1);
+  const [rankWeight, setRankWeight] = useState<'regular' | 'semibold' | 'bold' | 'heavy'>('bold');
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankAutoOrder, setRankAutoOrder] = useState(false);
   const [rankOrderBusy, setRankOrderBusy] = useState(false);
@@ -1570,6 +1575,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         clipSeconds: rankSecondsMode === 'auto' ? 0 : rankSeconds,
         positionMode: rankPosition,
         showScores: rankShowScores !== 'off',
+        offset_x: Math.round(rankOffsetX),
+        offset_y: Math.round(rankOffsetY),
+        spacing_y: Math.round(rankSpacingY),
+        scale: rankScale,
+        label_weight: rankWeight,
+        max_label_chars: 30,
         // Ranks are numbered 1..N with the best first, but the video plays them in countdown order so
         // the number-one moment lands last. The explicit `rank` keeps the on-screen numbers correct
         // even though the playback order is reversed.
@@ -3674,6 +3685,55 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   ))}
                 </div>
 
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                  {t.studio.rankLayoutLabel}
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}> · {t.studio.rankDragListHint}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.7rem' }}>
+                  {([
+                    [t.studio.rankOffsetXLabel, rankOffsetX, -400, 400, 10, (v: number) => setRankOffsetX(v)],
+                    [t.studio.rankOffsetYLabel, rankOffsetY, -600, 600, 10, (v: number) => setRankOffsetY(v)],
+                    [t.studio.rankSpacingLabel, rankSpacingY, 0, 160, 5, (v: number) => setRankSpacingY(v)],
+                    [t.studio.rankScaleLabel, rankScale, 0.5, 2.0, 0.05, (v: number) => setRankScale(v)],
+                  ] as const).map(([label, value, min, max, step, setter]) => (
+                    <label key={String(label)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      <span style={{ width: '92px', flexShrink: 0 }}>{label}</span>
+                      <input
+                        type="range"
+                        min={min}
+                        max={max}
+                        step={step}
+                        value={value}
+                        onChange={e => setter(Number(e.target.value))}
+                        style={{ flex: 1, accentColor: '#a855f7' }}
+                      />
+                      <span style={{ width: '44px', textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                        {label === t.studio.rankScaleLabel ? `${value.toFixed(2)}×` : value}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>{t.studio.rankWeightLabel}</div>
+                <div className="pill-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.7rem' }}>
+                  {([
+                    ['regular', t.studio.rankWeightRegular, 500],
+                    ['semibold', t.studio.rankWeightSemibold, 600],
+                    ['bold', t.studio.rankWeightBold, 700],
+                    ['heavy', t.studio.rankWeightHeavy, 900],
+                  ] as const).map(([id, label, weight]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`pill-btn ${rankWeight === id ? 'active' : ''}`}
+                      style={{ fontSize: '0.72rem', padding: '0.24rem 0.6rem', fontWeight: weight }}
+                      onClick={() => setRankWeight(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.76rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem' }}>
                   <input
                     type="checkbox"
@@ -3774,6 +3834,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           className="batch-title-input"
                           placeholder={fallbackLabel || t.studio.rankLabelPlaceholder}
                           value={rankLabels[clipIdx] ?? ''}
+                          maxLength={30}
                           onChange={(e) => setRankLabels(prev => ({ ...prev, [clipIdx]: e.target.value }))}
                           style={{ flex: 1 }}
                         />
@@ -3909,6 +3970,15 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 textCase={textCase}
                 transcript={transcript}
                 renderedUrl={rankRenderedUrl}
+                offsetX={rankOffsetX}
+                offsetY={rankOffsetY}
+                spacingY={rankSpacingY}
+                scale={rankScale}
+                labelWeight={rankWeight}
+                onOffsetChange={(x, y) => {
+                  setRankOffsetX(Math.round(x));
+                  setRankOffsetY(Math.round(y));
+                }}
               />
             )}
 

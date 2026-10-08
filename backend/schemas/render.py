@@ -16,6 +16,13 @@ class RankHighlightModel(BaseModel):
     show_scores: bool = False
     # Draw a duration line under every rank label that fills while that rank plays
     show_progress_bars: bool = True
+    # Layout controls for the whole rank list
+    max_label_chars: int = 30                # labels are cut at this length
+    spacing_y: int = 0                       # row gap in px (0 = the anchor default)
+    offset_x: int = 0                        # horizontal shift of the whole list
+    offset_y: int = 0                        # vertical shift of the whole list
+    scale: float = 1.0                       # overall size multiplier (0.5-2.0)
+    label_weight: str = "bold"               # regular | semibold | bold | heavy
     # Optional per-rank overrides from the UI: [{"clip_index": int, "label": str}], in rank order.
     ranks: Optional[List[Dict[str, Any]]] = None
 

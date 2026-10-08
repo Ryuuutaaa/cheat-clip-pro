@@ -1961,6 +1961,12 @@ def build_rank_overlay_ass(
     show_numbers: bool = True,
     total_seconds: Optional[float] = None,
     show_progress_bars: bool = True,
+    max_label_chars: int = 30,
+    spacing_y: int = 0,
+    offset_x: int = 0,
+    offset_y: int = 0,
+    scale: float = 1.0,
+    label_weight: str = "bold",
 ) -> str:
     """
     Writes the overlay for a ranking compilation: one headline for the whole video, plus a stacked
@@ -2019,21 +2025,44 @@ def build_rank_overlay_ass(
             rank_numbers.append(idx + 1)
     max_rank = max(rank_numbers) if rank_numbers else 1
 
+    # Layout knobs: row gap, list offset, overall scale and label thickness. Scale multiplies the
+    # font size and the gap so everything grows together, like resizing a Figma group.
+    row_gap = abs(int(spacing_y)) if spacing_y else abs(anchor["step"])
+    step = row_gap * max(0.5, min(2.0, float(scale)))
+    font_size = max(18, int(52 * max(0.5, min(2.0, float(scale)))))
+    list_x = anchor["x"] + int(offset_x)
+    list_y0 = anchor["y_start"] + int(offset_y)
+    weight_map = {
+        "regular": ("\\b0", "\\bord1"),
+        "semibold": ("\\b1", "\\bord1"),
+        "bold": ("\\b1", "\\bord2"),
+        "heavy": ("\\b1", "\\bord4"),
+    }
+    bold_tag, border_tag = weight_map.get(label_weight or "bold", weight_map["bold"])
+    bar_w = int(420 * max(0.5, min(2.0, float(scale))))
+    bar_h = max(4, int(10 * max(0.5, min(2.0, float(scale)))))
+
+    def _y_for(rank_number: int) -> int:
+        if anchor_is_bottom:
+            return int(list_y0 + (max_rank - rank_number) * step)
+        return int(list_y0 + (rank_number - 1) * step)
+
     # Fixed skeleton: every rank's number sits in its slot from the very first frame, dimmed, so the
     # leaderboard structure is visible before anything plays. The label line drawn over it later
     # replaces the dim number the moment its clip starts.
     if show_numbers:
         for r in range(1, max_rank + 1):
-            y_slot = (
-                anchor["y_start"] + (max_rank - r) * anchor["step"]
-            ) if anchor_is_bottom else (
-                anchor["y_start"] + (r - 1) * anchor["step"]
+            y_slot = _y_for(r)
+            slot_text = (
+                f"{{\\an{anchor['an']}\\pos({list_x},{y_slot})}}{{\\fs{font_size}}}"
+                f"{{\\c&H60FFFFFF&}}{r}."
             )
-            slot_text = f"{{\\an{anchor['an']}\\pos({anchor['x']},{y_slot})}}{{\\c&H60FFFFFF&}}{r}."
             lines.append(f"Dialogue: 0,0:00:00.00,{_ass_timestamp(total)},RankSlot,,0,0,0,,{slot_text}")
 
     for idx, seg in enumerate(segments):
         label = str(seg.get("label") or f"Rank {idx + 1}").strip()
+        if len(label) > max_label_chars:
+            label = label[: max(0, max_label_chars - 1)] + "…"
         start = float(seg.get("start", 0.0))
         end = float(seg.get("end", start + 5.0))
         try:
@@ -2043,26 +2072,24 @@ def build_rank_overlay_ass(
         # The leaderboard builds from the bottom up: the rank that played first (the highest number)
         # owns the lowest line and each newcomer appears above it, and every label stays on screen
         # once it appears. Colour follows the rank, not the playback order.
-        if anchor_is_bottom:
-            # Bottom anchors step upward (negative step), so adding moves the entry higher on
-            # screen: rank N sits on the lowest line and the winner climbs to the top of the list.
-            y = anchor["y_start"] + (max_rank - rank_number) * anchor["step"]
-        else:
-            y = anchor["y_start"] + (rank_number - 1) * anchor["step"]
+        y = _y_for(rank_number)
         colour = RANK_ACCENT_COLORS[rank_number - 1] if 1 <= rank_number <= len(RANK_ACCENT_COLORS) else "&H00ECECEC&"
         number = f"{rank_number}. " if show_numbers else ""
-        text = f"{{\\an{anchor['an']}\\pos({anchor['x']},{y})}}{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
+        text = (
+            f"{{\\an{anchor['an']}\\pos({list_x},{y})}}{{\\fs{font_size}}}{bold_tag}{border_tag}"
+            f"{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
+        )
         lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")
 
         # Duration line under the label: a dim track for the whole entry plus a fill that grows with
         # the entry's own clip. \fscx animates the drawing from zero to full width, which libass
         # interpolates smoothly, so the viewer sees how far into this rank the video is.
         if show_progress_bars:
-            bar_y = y + (34 if anchor_is_bottom else 26)
-            rect = r"m 0 0 l 420 0 l 420 10 l 0 10"
-            track = f"{{\\an{anchor['an']}\\pos({anchor['x']},{bar_y})\\bord0\\1c&H55FFFFFF&\\p1}}{rect}{{\\p0}}"
+            bar_y = y + int((34 if anchor_is_bottom else 26) * max(0.5, min(2.0, float(scale))))
+            rect = f"m 0 0 l {bar_w} 0 l {bar_w} {bar_h} l 0 {bar_h}"
+            track = f"{{\\an{anchor['an']}\\pos({list_x},{bar_y})\\bord0\\1c&H55FFFFFF&\\p1}}{rect}{{\\p0}}"
             fill = (
-                f"{{\\an{anchor['an']}\\pos({anchor['x']},{bar_y})\\bord0\\1c{colour}\\fscx0"
+                f"{{\\an{anchor['an']}\\pos({list_x},{bar_y})\\bord0\\1c{colour}\\fscx0"
                 f"\\t({_ass_timestamp(start)},{_ass_timestamp(end)},\\fscx100)\\p1}}{rect}{{\\p0}}"
             )
             lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankBar,,0,0,0,,{track}")

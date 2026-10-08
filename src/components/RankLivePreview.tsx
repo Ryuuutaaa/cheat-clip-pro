@@ -31,6 +31,14 @@ interface RankLivePreviewProps {
   transcript?: TranscriptLine[];
   /** The finished ranking file, once the batch is done — the preview can play it directly. */
   renderedUrl?: string;
+  /** Layout controls for the rank list (1080x1920 space, like the renderer). */
+  offsetX?: number;
+  offsetY?: number;
+  spacingY?: number;
+  scale?: number;
+  labelWeight?: string;
+  /** Dragging the list in the preview reports the new offset, Figma-style. */
+  onOffsetChange?: (x: number, y: number) => void;
 }
 
 /**
@@ -55,6 +63,12 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   textCase = 'capitalize',
   transcript = [],
   renderedUrl,
+  offsetX = 0,
+  offsetY = 0,
+  spacingY = 0,
+  scale = 1,
+  labelWeight = 'bold',
+  onOffsetChange,
 }) => {
   const { t } = useLanguage();
   const directRef = useRef<HTMLVideoElement | null>(null);
@@ -101,6 +115,39 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   // clip has played. Reversed so the winner sits on top of the list.
   const playedRanks = new Set(entries.slice(0, activeIdx + 1).map(e => e.rank));
   const skeleton = [...entries].reverse();
+
+  // Layout controls in the preview's pixel space (the renderer works in 1080x1920).
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const frameW = frameRef.current?.clientWidth || 338;
+  const toPx = (v: number) => v * (frameW / 1080);
+  const weightFont: Record<string, number> = { regular: 500, semibold: 600, bold: 700, heavy: 900 };
+  const trunc = (s: string) => (s.length > 30 ? `${s.slice(0, 29)}…` : s);
+  const clampScale = Math.max(0.5, Math.min(2.0, Number(scale) || 1));
+
+  // Figma-style dragging: press anywhere on the list and move it; a small threshold keeps label
+  // clicks working as jumps.
+  const dragState = useRef<{ startX: number; startY: number; baseX: number; baseY: number; moved: boolean } | null>(null);
+  const dragMovedRef = useRef(false);
+  const handleListPointerDown = (e: React.PointerEvent) => {
+    if (!onOffsetChange) return;
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    dragMovedRef.current = false;
+    dragState.current = { startX: e.clientX, startY: e.clientY, baseX: offsetX, baseY: offsetY, moved: false };
+  };
+  const handleListPointerMove = (e: React.PointerEvent) => {
+    const d = dragState.current;
+    if (!d || !onOffsetChange) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (!d.moved && Math.hypot(dx, dy) < 5) return;
+    d.moved = true;
+    dragMovedRef.current = true;
+    const factor = 1080 / frameW;
+    onOffsetChange(d.baseX + dx * factor, d.baseY + dy * factor);
+  };
+  const handleListPointerUp = () => {
+    dragState.current = null;
+  };
 
   const advance = (next?: number) => {
     if (!entries.length) return;
@@ -310,7 +357,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
 
   return (
     <div className="rank-live-preview">
-      <div className={`rank-live-frame ${ratioClass}`}>
+      <div className={`rank-live-frame ${ratioClass}`} ref={frameRef}>
         {renderedUrl && viewMode === 'rendered' ? (
           <>
             <video
@@ -360,7 +407,20 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
 
         <div className="rank-live-overlay">
           <div className="rank-preview-title">{title.trim() || t.studio.rankingDefault}</div>
-          <div className={`rank-preview-list rank-live-list pos-${position}`}>
+          <div
+            className={`rank-preview-list rank-live-list pos-${position}`}
+            style={{
+              gap: spacingY ? `${toPx(spacingY)}px` : undefined,
+              transform: `translate(${toPx(offsetX)}px, ${toPx(offsetY)}px) scale(${clampScale})`,
+              transformOrigin: position.startsWith('bottom') ? 'left bottom' : 'left top',
+              touchAction: 'none',
+              cursor: onOffsetChange ? 'grab' : undefined,
+            }}
+            onPointerDown={handleListPointerDown}
+            onPointerMove={handleListPointerMove}
+            onPointerUp={handleListPointerUp}
+            onPointerCancel={handleListPointerUp}
+          >
             {skeleton.map(e => {
               const revealed = playedRanks.has(e.rank);
               return (
@@ -368,13 +428,20 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
                   type="button"
                   key={`${e.rank}-${e.start}`}
                   className="rank-preview-item rank-live-jump"
-                  onClick={() => jumpToRank(e.rank)}
+                  onClick={() => {
+                    if (dragMovedRef.current) {
+                      dragMovedRef.current = false;
+                      return;
+                    }
+                    jumpToRank(e.rank);
+                  }}
                   title={`${t.studio.rankWord} ${e.rank}`}
+                  style={{ fontWeight: weightFont[labelWeight] || 700 }}
                 >
                   <span className={`rank-preview-num ${e.rank <= 3 ? `medal-${e.rank}` : ''} ${revealed ? '' : 'dimmed'}`}>{e.rank}.</span>
                   {revealed && (
                     <span className="rank-preview-label">
-                      {e.label}
+                      {trunc(e.label)}
                       {showScores && typeof e.score === 'number' ? ` · ${Math.round(e.score)}` : ''}
                     </span>
                   )}
