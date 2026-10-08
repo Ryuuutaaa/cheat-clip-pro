@@ -243,6 +243,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankScale, setRankScale] = useState(1);
   const [rankWeight, setRankWeight] = useState<'regular' | 'semibold' | 'bold' | 'heavy'>('bold');
   const [rankLabelsBusy, setRankLabelsBusy] = useState(false);
+  const [rankRenderedFiles, setRankRenderedFiles] = useState<Array<{ name: string; size: number; modified: number; is_ranking: boolean; download_url: string }>>([]);
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankAutoOrder, setRankAutoOrder] = useState(false);
   const [rankOrderBusy, setRankOrderBusy] = useState(false);
@@ -632,6 +633,26 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       setRankLabelsBusy(false);
     }
   };
+
+  // Finished renders live on disk, so they stay downloadable no matter what the page forgets.
+  const refreshRenderedFiles = () => {
+    resilientFetch('/api/rendered-files?kind=ranking&limit=8')
+      .then(r => r.json())
+      .then(d => setRankRenderedFiles(Array.isArray(d.files) ? d.files : []))
+      .catch(() => {
+        // listing is a convenience; failing quietly is fine
+      });
+  };
+
+  useEffect(() => {
+    if (rankMode) refreshRenderedFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rankMode]);
+
+  useEffect(() => {
+    if (rankMode && batchProgress?.overall_status === 'completed') refreshRenderedFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rankMode, batchProgress?.overall_status]);
 
   // Which rank's clip is playing in the rank preview, and how to play it for this source type.
   const rankPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -4632,6 +4653,35 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Finished renders: stay downloadable after a reload */}
+            {rankMode && rankRenderedFiles.length > 0 && (
+              <div className="studio-batch-queue-card" style={{ marginTop: '0.75rem' }}>
+                <div className="batch-progress-header">
+                  <h4 className="batch-queue-title">{t.studio.rankHistoryTitle}</h4>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.5rem' }}>
+                  {rankRenderedFiles.map(f => (
+                    <div
+                      key={f.name}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        padding: '0.4rem 0.6rem', borderRadius: '8px',
+                        border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.03)',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.72rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        {f.is_ranking ? '🏆 ' : '🎬 '}{f.name}
+                      </span>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {new Date(f.modified * 1000).toLocaleDateString()} · {(f.size / 1e6).toFixed(1)}MB
+                      </span>
+                      <a href={f.download_url} download className="quick-dl-btn" style={{ flexShrink: 0 }}>⬇️ MP4</a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Batch Render Queue Card - Fancy glowing when generating */}
             {batchProgress && (

@@ -560,6 +560,7 @@ export const id: Translations = {
     statusReady: "Siap untuk render batch",
     recentFilesTitle: "⚡ Berkas Output Sesi:",
     batchQueueTitle: "🎬 Antrean Render Batch",
+    rankHistoryTitle: "📁 Hasil render ranking (tersimpan)",
     allClipsRendered: (count: number) => `🎉 Semua ${count} klip selesai dirender!`,
     someClipsFailed: (failedCount: number, total: number) => `⚠️ ${failedCount} dari ${total} klip mengalami kendala render.`,
     allClipsFailed: "❌ Render batch gagal. Lihat rincian error di bawah.",

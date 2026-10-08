@@ -215,6 +215,37 @@ async def get_render_progress(batch_id: str):
     )
 
 
+@router.get("/api/rendered-files")
+def list_rendered_files(kind: Optional[str] = None, limit: int = 12):
+    """Lists finished renders so they stay downloadable after a page reload.
+
+    kind=ranking returns only the ranking compilations, anything else returns the individual clips.
+    """
+    files = []
+    try:
+        for entry in EXPORTS_DIR.iterdir():
+            if not entry.is_file() or entry.suffix.lower() != ".mp4":
+                continue
+            is_ranking = entry.name.startswith("ranking_")
+            if kind == "ranking" and not is_ranking:
+                continue
+            if kind == "clips" and is_ranking:
+                continue
+            stat = entry.stat()
+            files.append({
+                "name": entry.name,
+                "size": stat.st_size,
+                "modified": int(stat.st_mtime),
+                "is_ranking": is_ranking,
+                "download_url": f"/api/download-rendered/{entry.name}",
+            })
+    except FileNotFoundError:
+        return {"files": []}
+
+    files.sort(key=lambda f: f["modified"], reverse=True)
+    return {"files": files[: max(1, min(50, limit))]}
+
+
 @router.get("/api/download-rendered/{file_name}")
 def download_rendered_file(file_name: str, title: Optional[str] = None):
     safe_name = os.path.basename(file_name)

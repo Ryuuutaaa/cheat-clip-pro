@@ -558,6 +558,7 @@ export const en = {
     statusReady: "Ready to batch render",
     recentFilesTitle: "⚡ Session Output Files:",
     batchQueueTitle: "🎬 Batch Render Queue",
+    rankHistoryTitle: "📁 Finished rankings (saved on disk)",
     allClipsRendered: (count: number) => `🎉 All ${count} clips rendered!`,
     someClipsFailed: (failedCount: number, total: number) => `⚠️ ${failedCount} of ${total} clips encountered errors.`,
     allClipsFailed: "❌ Batch rendering failed. See error details below.",
