@@ -3955,7 +3955,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           style={{
                             width: '100%',
                             height: '100%',
-                            objectFit: 'cover',
+                            objectFit: aspectRatio === '16:9' ? 'contain' : 'cover',
                             objectPosition: `${previewCropPercent}% 50%`,
                             transition: 'object-position 0.3s ease-out'
                           }}

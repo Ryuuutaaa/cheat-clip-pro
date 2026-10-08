@@ -141,7 +141,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
       };
       ytRef.current = new Player('rank-live-yt-slot', {
         videoId,
-        playerVars: { autoplay: 0, controls: 1, playsinline: 1, rel: 0 },
+        playerVars: { autoplay: 0, controls: 0, playsinline: 1, rel: 0 },
         events: {
           onReady: (e: { target: { seekTo: (s: number, a: boolean) => void; playVideo: () => void } }) => {
             if (!active) return;
@@ -257,28 +257,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   };
 
   const ratioClass = `ratio-${(aspectRatio || '9:16').replace(':', '-')}`;
-  const isLetterbox = aspectRatio === '16:9_letterbox';
-  // The export crops the 16:9 source into the frame (except letterbox). The direct video does that
-  // with object-fit, but a YouTube iframe always renders 16:9, so it must be over-scaled to the
-  // point where the frame is filled and the sides fall outside — the centre crop the export starts
-  // from (face tracking refines it at render time).
-  const ytCropWidthPct: Record<string, number> = {
-    '9:16': 316,
-    '1:1': 178,
-    '4:3': 133,
-    '16:9_landscape': 100,
-    '16:9_letterbox': 100,
-  };
-  const ytSlotStyle = isLetterbox
-    ? { position: 'absolute' as const, inset: 0 }
-    : {
-        position: 'absolute' as const,
-        top: 0,
-        bottom: 0,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        width: `${ytCropWidthPct[aspectRatio] || 316}%`,
-      };
+  const isLetterbox = aspectRatio === '16:9';
 
   return (
     <div className="rank-live-preview">
@@ -300,7 +279,12 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
             }}
           />
         ) : videoId ? (
-          <div id="rank-live-yt-slot" style={ytSlotStyle} />
+          // The YouTube API replaces the target element with its iframe, so any sizing on the
+          // target dies with it. The crop lives in CSS on the iframe inside this wrapper instead,
+          // which survives the replacement.
+          <div className="rank-live-yt-wrap">
+            <div id="rank-live-yt-slot" style={{ position: 'absolute', inset: 0 }} />
+          </div>
         ) : (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '0 1rem', textAlign: 'center' }}>
             {t.studio.rankNoPreview}

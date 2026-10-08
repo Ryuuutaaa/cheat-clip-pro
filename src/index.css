@@ -1010,8 +1010,44 @@ h1, h2, h3, h4 {
 .rank-live-frame.ratio-9-16 { aspect-ratio: 9 / 16; }
 .rank-live-frame.ratio-1-1 { aspect-ratio: 1 / 1; }
 .rank-live-frame.ratio-4-3 { aspect-ratio: 4 / 3; }
-.rank-live-frame.ratio-16-9_letterbox { aspect-ratio: 9 / 16; }
+.rank-live-frame.ratio-16-9 { aspect-ratio: 9 / 16; }          /* 16:9 letterboxed into the portrait canvas */
 .rank-live-frame.ratio-16-9_landscape { aspect-ratio: 16 / 9; }
+
+/* The YouTube API replaces its target element with an iframe, so the crop must live on the iframe
+   itself. A 16:9 source filling a W:H frame needs width = H * 16/9 (crop the sides); letterbox
+   keeps the source at 16:9 inside the portrait frame. */
+.rank-live-yt-wrap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.rank-live-yt-wrap iframe {
+  position: absolute;
+  border: none;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 100%;
+  pointer-events: none;
+}
+
+.rank-live-frame.ratio-9-16 .rank-live-yt-wrap iframe { width: 177.8%; }
+.rank-live-frame.ratio-1-1 .rank-live-yt-wrap iframe { width: 177.8%; }
+.rank-live-frame.ratio-4-3 .rank-live-yt-wrap iframe { width: 133.3%; }
+.rank-live-frame.ratio-16-9_landscape .rank-live-yt-wrap iframe {
+  width: 100%;
+  left: 0;
+  transform: none;
+}
+.rank-live-frame.ratio-16-9 .rank-live-yt-wrap iframe {
+  width: 100%;
+  height: 56.25%;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
 
 .rank-live-overlay {
   position: absolute;
@@ -3997,6 +4033,15 @@ label[for="manual-subtitle-file"]:hover {
 .aspect-169 .studio-yt-embed-slot iframe {
   width: 320px;
   height: 180px;
+}
+
+/* In 16:9 letterbox mode the source keeps its shape inside the small 16:9 box */
+.aspect-169 .studio-yt-embed-slot iframe {
+  width: 100%;
+  height: 100%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 /* In 16:9 true landscape mode */
