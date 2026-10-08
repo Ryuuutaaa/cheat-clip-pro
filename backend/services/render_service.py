@@ -10,6 +10,7 @@ from backend.utils.text import build_clip_metadata_text
 from backend.config import (
     EXPORTS_DIR,
     TEMP_DIR,
+    UPLOADS_DIR,
     build_rank_overlay_ass,
     download_clip_segment,
     generate_ass_file,
@@ -350,7 +351,7 @@ def prune_render_registry(max_entries: int = 50) -> None:
         overflow -= 1
 
 
-async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, target_url: str, transcript=None):
+async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, target_url: str, transcript=None, video_id: str = "", heatmap_points=None):
     """
     Builds the ranking compilation: each rank is trimmed around its hook, rendered with the normal
     per-clip pipeline, then all of them are concatenated and given the rank overlay in a single pass.
@@ -417,8 +418,45 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
                 shown_rank = pos + 1
             ordered.append((idx, clips[idx], (item.get("label") or "").strip(), shown_rank))
     if not ordered:
-        ranked = sorted(range(len(clips)), key=lambda i: float(clips[i].get("virality_score") or 0), reverse=True)
-        ordered = [(i, clips[i], "", pos + 1) for pos, i in enumerate(ranked[:count])]
+        # Multimodal Scoring Framework (opt-in): FinalScore = W_llm*S_llm + W_t*S_text + W_a*S_audio
+        # + W_e*S_engage with weights summing to 1, ordered ascending so the video plays as a
+        # countdown from the weakest moment to the winner. Visual arousal, laughter and chat velocity
+        # are not shipped, so those terms stay implicit in the LLM score.
+        if os.environ.get("RANK_USE_MULTIMODAL") == "1":
+            try:
+                from backend.utils.rank_signals import audio_score, heatmap_score, rms_of_window, text_score
+
+                raw_w = [float(x) for x in (os.environ.get("RANK_SCORE_WEIGHTS") or "0.55,0.15,0.15,0.15").split(",")]
+                if len(raw_w) == 4:
+                    total_w = sum(raw_w) or 1.0
+                    w_llm, w_text, w_audio, w_engage = [x / total_w for x in raw_w]
+                    windows = [rank_window(c) for c in clips]
+
+                    source_path = None
+                    if str(target_url).startswith("/api/video/"):
+                        candidate = UPLOADS_DIR / os.path.basename(str(target_url).split("?")[0])
+                        if candidate.exists():
+                            source_path = str(candidate)
+                    rms = await asyncio.to_thread(
+                        lambda: [rms_of_window(source_path, s, e) for s, e in windows]
+                    ) if source_path else [None] * len(clips)
+                    audio = audio_score(rms)
+                    text_s = [text_score(transcript_lines, s, e) for s, e in windows]
+                    engage = [heatmap_score(heatmap_points or [], s, e) for s, e in windows]
+
+                    scored = []
+                    for i, clip in enumerate(clips):
+                        llm = float(clip.get("virality_score") or 0.0) / 100.0
+                        final = w_llm * llm + w_text * text_s[i] + w_audio * audio[i] + w_engage * engage[i]
+                        scored.append((final, i))
+                    scored.sort()
+                    ordered = [(i, clips[i], "", len(scored) - pos) for pos, (_, i) in enumerate(scored[:count])]
+                    logger.info(f"Multimodal ranking order: {[i for _, i in scored[:count]]}")
+            except Exception as e:
+                logger.warning(f"Multimodal ranking failed, using the LLM score instead: {e}")
+        if not ordered:
+            ranked = sorted(range(len(clips)), key=lambda i: float(clips[i].get("virality_score") or 0), reverse=True)
+            ordered = [(i, clips[i], "", pos + 1) for pos, i in enumerate(ranked[:count])]
     ordered = ordered[:count]
 
     # Temporal NMS: the analysis is asked not to overlap clips, but nothing enforced it, and two ranks
@@ -511,6 +549,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         position_mode=rank_settings.position_mode or "top_left",
         show_numbers=bool(rank_settings.show_numbers),
         total_seconds=elapsed,
+        show_progress_bars=bool(getattr(rank_settings, "show_progress_bars", True)),
     )
     out_name = f"ranking_{batch_id}.mp4"
     out_path = str(EXPORTS_DIR / out_name)
@@ -604,7 +643,8 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
     if rank_mode:
         try:
             await _render_rank_highlight(
-                batch_id, clips, settings, rank_settings, target_url, request.transcript
+                batch_id, clips, settings, rank_settings, target_url, request.transcript,
+                video_id=request.video_id, heatmap_points=request.heatmap_points,
             )
         except Exception as e:
             logger.error(f"Ranking compilation failed for batch {batch_id}: {e}")

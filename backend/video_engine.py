@@ -1960,6 +1960,7 @@ def build_rank_overlay_ass(
     position_mode: str = "top_left",
     show_numbers: bool = True,
     total_seconds: Optional[float] = None,
+    show_progress_bars: bool = True,
 ) -> str:
     """
     Writes the overlay for a ranking compilation: one headline for the whole video, plus a stacked
@@ -2039,6 +2040,20 @@ def build_rank_overlay_ass(
         number = f"{rank_number}. " if show_numbers else ""
         text = f"{{\\an{anchor['an']}\\pos({anchor['x']},{y})}}{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
         lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")
+
+        # Duration line under the label: a dim track for the whole entry plus a fill that grows with
+        # the entry's own clip. \fscx animates the drawing from zero to full width, which libass
+        # interpolates smoothly, so the viewer sees how far into this rank the video is.
+        if show_progress_bars:
+            bar_y = y + (34 if anchor_is_bottom else 26)
+            rect = r"m 0 0 l 420 0 l 420 10 l 0 10"
+            track = f"{{\\an{anchor['an']}\\pos({anchor['x']},{bar_y})\\bord0\\1c&H55FFFFFF&\\p1}}{rect}{{\\p0}}"
+            fill = (
+                f"{{\\an{anchor['an']}\\pos({anchor['x']},{bar_y})\\bord0\\1c{colour}\\fscx0"
+                f"\\t({_ass_timestamp(start)},{_ass_timestamp(end)},\\fscx100)\\p1}}{rect}{{\\p0}}"
+            )
+            lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankBar,,0,0,0,,{track}")
+            lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},RankBarFill,,0,0,0,,{fill}")
 
     Path(output_ass_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
     logger.info(f"Rank overlay written: {output_ass_path} ({len(segments)} ranks, {position_mode})")

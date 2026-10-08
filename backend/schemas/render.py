@@ -14,6 +14,8 @@ class RankHighlightModel(BaseModel):
     show_numbers: bool = True
     # Append the clip's virality score to its rank label ("3. Bald arch · 87")
     show_scores: bool = False
+    # Draw a duration line under every rank label that fills while that rank plays
+    show_progress_bars: bool = True
     # Optional per-rank overrides from the UI: [{"clip_index": int, "label": str}], in rank order.
     ranks: Optional[List[Dict[str, Any]]] = None
 
@@ -72,6 +74,8 @@ class RenderBatchRequest(BaseModel):
     clips: List[Dict[str, Any]]
     settings: RenderSettingsModel
     transcript: Optional[List[Dict[str, Any]]] = None
+    # Acoustic-engagement heatmap from the analysis, used by the multimodal ranking signal.
+    heatmap_points: Optional[List[Dict[str, Any]]] = None
 
 class RetryBatchRequest(BaseModel):
     clip_indices: Optional[List[int]] = None

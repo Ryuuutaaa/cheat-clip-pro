@@ -238,6 +238,7 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
         video_id: result.video_id,
         clips: settings.selectedClips,
         transcript: result.transcript,
+        heatmap_points: result.heatmap,
         settings: {
           aspect_ratio: settings.aspectRatio,
           background_style: settings.backgroundStyle,
