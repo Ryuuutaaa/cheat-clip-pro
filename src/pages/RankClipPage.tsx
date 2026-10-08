@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '../locales';
 import { ClipStudioSection } from '../components/ClipStudioSection';
 import { runAnalysis } from '../utils/analyzeStream';
@@ -7,6 +7,80 @@ import type { AnalyzeResponse, BatchRenderProgress, RenderSettings, ViralClip } 
 interface RankClipPageProps {
   apiKey: string;
   model: string;
+}
+
+interface SavedAnalysis {
+  key: string;
+  videoId: string;
+  title: string;
+  clips: number;
+  analyzedAt: string;
+  itemUrl: string;
+  thumb: string;
+  data: AnalyzeResponse;
+}
+
+/**
+ * Reads every analysis the app has cached, whichever page produced it: the clip page and this one
+ * write the same `cheat_clip_cache_*` / `cheat_clip_ts_*` keys, so a video analysed once shows up in
+ * both places and the rank page never has to re-analyse something it already knows.
+ */
+function readSavedAnalyses(): SavedAnalysis[] {
+  const entries: SavedAnalysis[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith('cheat_clip_cache_')) continue;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const data = JSON.parse(raw) as AnalyzeResponse;
+      if (!data || !data.video_id) continue;
+
+      const videoId = data.video_id;
+      const rest = key.substring('cheat_clip_cache_'.length);
+      const suffix = rest.substring(videoId.length + 1);
+      const durationPref = suffix.split('_')[0];
+      const rangeSuffix = suffix.substring(durationPref.length);
+
+      const isGDrive = data.source_type === 'gdrive' || videoId.startsWith('gdrive_');
+      const isUpload = data.source_type === 'upload' || videoId.startsWith('upload_');
+      const itemUrl = isUpload
+        ? (data.video_url || `/api/video/${videoId}`)
+        : isGDrive
+        ? (data.video_url || videoId)
+        : `https://www.youtube.com/watch?v=${videoId}`;
+
+      entries.push({
+        key,
+        videoId,
+        title: data.title || videoId,
+        clips: (data.clips || []).length,
+        analyzedAt: localStorage.getItem(`cheat_clip_ts_${videoId}_${durationPref}${rangeSuffix}`) || '',
+        itemUrl,
+        thumb: (isGDrive || isUpload)
+          ? `/api/clip-frame?video_id=${encodeURIComponent(videoId)}&timestamp=2`
+          : `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
+        data,
+      });
+    } catch {
+      // a corrupt entry should never take the page down
+    }
+  }
+  return entries.sort((a, b) => (b.analyzedAt || '').localeCompare(a.analyzedAt || '')).slice(0, 24);
+}
+
+const RANK_CACHE_SUFFIX = '15s_rank';
+
+/** Saves this page's analysis under the shared key so the clip page can reuse it too. */
+function persistAnalysis(data: AnalyzeResponse, sourceUrl: string) {
+  if (!data?.video_id) return;
+  const key = `cheat_clip_cache_${data.video_id}_${RANK_CACHE_SUFFIX}`;
+  try {
+    localStorage.setItem(key, JSON.stringify({ ...data, video_url: data.video_url || sourceUrl }));
+    localStorage.setItem(`cheat_clip_ts_${data.video_id}_${RANK_CACHE_SUFFIX}`, new Date().toISOString());
+  } catch {
+    // storage full or unavailable: analysis still works, it just will not be remembered
+  }
 }
 
 /**
@@ -26,6 +100,32 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
   const [markedClips, setMarkedClips] = useState<Record<string, boolean>>({});
   const [batchProgress, setBatchProgress] = useState<BatchRenderProgress | null>(null);
   const [isRendering, setIsRendering] = useState(false);
+  const [saved, setSaved] = useState<SavedAnalysis[]>([]);
+  const [savedOpen, setSavedOpen] = useState(false);
+
+  useEffect(() => {
+    setSaved(readSavedAnalyses());
+  }, []);
+
+  const markTopClips = (clips: ViralClip[]) => {
+    const top = [...clips].sort((a, b) => (b.virality_score || 0) - (a.virality_score || 0)).slice(0, 6);
+    const marks: Record<string, boolean> = {};
+    top.forEach(c => {
+      marks[`${c.start_time}_${c.end_time}`] = true;
+    });
+    setMarkedClips(marks);
+  };
+
+  const useSavedAnalysis = (entry: SavedAnalysis) => {
+    setResult(entry.data);
+    setUrl(entry.itemUrl);
+    setSourceName(entry.title);
+    setError(null);
+    markTopClips(entry.data.clips || []);
+    setSavedOpen(false);
+    // Jump straight to the setup: the analysis is already done, nothing to re-run.
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  };
 
   const analysisAbort = useRef<AbortController | null>(null);
   const renderStream = useRef<EventSource | null>(null);
@@ -71,14 +171,9 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
         },
       });
       setResult(data);
-      const top = [...(data.clips || [])]
-        .sort((a, b) => (b.virality_score || 0) - (a.virality_score || 0))
-        .slice(0, 6);
-      const marks: Record<string, boolean> = {};
-      top.forEach(c => {
-        marks[`${c.start_time}_${c.end_time}`] = true;
-      });
-      setMarkedClips(marks);
+      markTopClips(data.clips || []);
+      persistAnalysis(data, url.trim());
+      setSaved(readSavedAnalyses());
     } catch (e) {
       if ((e as Error)?.name !== 'AbortError') {
         setError(e instanceof Error ? e.message : String(e));
@@ -254,6 +349,53 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
               <div style={{ width: `${Math.max(4, percent)}%`, height: '100%', background: 'linear-gradient(90deg,#a855f7,#38bdf8)', transition: 'width 0.3s ease' }} />
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.35rem' }}>{progress}</div>
+          </div>
+        )}
+
+        {saved.length > 0 && (
+          <div style={{ marginTop: '0.9rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn-quiet"
+              onClick={() => setSavedOpen(v => !v)}
+              style={{ fontSize: '0.8rem', padding: '0.35rem 0.7rem' }}
+            >
+              {savedOpen ? t.rankPage.savedHide : t.rankPage.savedShow(saved.length)}
+            </button>
+
+            {savedOpen && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.6rem', maxHeight: '260px', overflowY: 'auto' }}>
+                {saved.map(entry => (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    onClick={() => useSavedAnalysis(entry)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0.6rem',
+                      borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.03)', cursor: 'pointer', textAlign: 'left'
+                    }}
+                  >
+                    <img
+                      src={entry.thumb}
+                      alt=""
+                      style={{ width: '56px', height: '32px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0, background: '#000' }}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                    />
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {entry.title}
+                      </span>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {t.rankPage.savedClips(entry.clips)}
+                        {entry.analyzedAt ? ` · ${new Date(entry.analyzedAt).toLocaleDateString()}` : ''}
+                      </span>
+                    </span>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#c084fc', flexShrink: 0 }}>{t.rankPage.savedUse}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -746,6 +746,10 @@ export const en = {
     uploading: "Uploading…",
     sourceLabel: "Source",
     urlRequired: "Paste a link or upload a file first.",
+    savedShow: (count: number) => `📂 Previously analyzed (${count})`,
+    savedHide: "📂 Hide previously analyzed",
+    savedUse: "Use →",
+    savedClips: (count: number) => `${count} clips`,
   },
   aiUsage: {
     btn: "AI Usage",

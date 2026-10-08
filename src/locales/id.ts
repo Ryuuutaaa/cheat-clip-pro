@@ -748,6 +748,10 @@ export const id: Translations = {
     uploading: "Mengunggah…",
     sourceLabel: "Sumber",
     urlRequired: "Tempel tautan atau unggah file dulu.",
+    savedShow: (count: number) => `📂 Analisis sebelumnya (${count})`,
+    savedHide: "📂 Sembunyikan analisis sebelumnya",
+    savedUse: "Pakai →",
+    savedClips: (count: number) => `${count} klip`,
   },
   aiUsage: {
     btn: "Penggunaan AI",
