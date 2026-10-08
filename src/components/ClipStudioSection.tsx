@@ -388,9 +388,29 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     }
   }, [activeClip, allClips]);
 
-  const currentPreviewClip = allClips[previewClipIndex] || allClips[0] || null;
-  const clipStart = currentPreviewClip ? currentPreviewClip.start_time : 0;
-  const clipEnd = currentPreviewClip ? currentPreviewClip.end_time : 60;
+  // Which rank's clip is being previewed, and which clip the big preview follows. On the rank page
+  // the preview obeys the rank being previewed instead of its own picker: the same clip the label
+  // belongs to, and the same window the render cuts (from the hook), so the frame on screen and the
+  // label drawn over it can never disagree.
+  const [rankPreviewIdx, setRankPreviewIdx] = useState(0);
+  const rankPreviewClipIndex = rankOrder[rankPreviewIdx];
+  const rankPreviewClip = rankPreviewClipIndex !== undefined ? selectedClips[rankPreviewClipIndex] : null;
+  const rankPreviewSourceIndex = rankPreviewClip ? allClips.indexOf(rankPreviewClip) : -1;
+  const previewClipSourceIndex = rankMode && rankPreviewSourceIndex >= 0 ? rankPreviewSourceIndex : previewClipIndex;
+
+  const rankPreviewWindow = (() => {
+    if (!rankMode || !rankPreviewClip) return null;
+    const hook = Number(rankPreviewClip.hook_time ?? rankPreviewClip.start_time) || rankPreviewClip.start_time;
+    const start = Math.max(rankPreviewClip.start_time, hook);
+    const seconds = rankSecondsMode === 'auto' ? 5 : rankSeconds;
+    return { start, end: Math.min(rankPreviewClip.end_time, start + seconds) };
+  })();
+
+  const currentPreviewClip = allClips[previewClipSourceIndex] || allClips[0] || null;
+  const clipStart = rankPreviewWindow ? rankPreviewWindow.start : (currentPreviewClip ? currentPreviewClip.start_time : 0);
+  const clipEnd = rankPreviewWindow
+    ? Math.max(rankPreviewWindow.end, rankPreviewWindow.start + 1)
+    : (currentPreviewClip ? currentPreviewClip.end_time : 60);
   const clipDuration = Math.max(1, clipEnd - clipStart);
 
   // Fetch face/object detection coordinates.
@@ -435,7 +455,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     };
     fetchFace();
     return () => controller.abort();
-  }, [videoId, previewClipIndex, clipStart, videoUrl, facecamPosition, streamerPreset]);
+  }, [videoId, previewClipSourceIndex, clipStart, videoUrl, facecamPosition, streamerPreset]);
 
   // Rank order defaults to best virality score first; the user can move entries afterwards.
   const selectedClipsKey = selectedClips.map(c => `${c.start_time}_${c.end_time}`).join('|');
@@ -460,7 +480,6 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   };
 
   // Which rank's clip is playing in the rank preview, and how to play it for this source type.
-  const [rankPreviewIdx, setRankPreviewIdx] = useState(0);
   const rankPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const rankPreviewIsDirect = Boolean(
@@ -468,8 +487,6 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') ||
       videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_'))
   );
-  const rankPreviewClipIndex = rankOrder[rankPreviewIdx];
-  const rankPreviewClip = rankPreviewClipIndex !== undefined ? selectedClips[rankPreviewClipIndex] : null;
   const rankPreviewStart = rankPreviewClip
     ? Number(rankPreviewClip.hook_time ?? rankPreviewClip.start_time) || 0
     : 0;
@@ -680,9 +697,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             const t = previewPlayerRef.current.getCurrentTime();
             if (typeof t === 'number' && !isNaN(t)) {
               setCurrentTime(t);
-              if (currentPreviewClip && t >= currentPreviewClip.end_time) {
+              if (t >= clipEnd) {
                 if (isLooping) {
-                  previewPlayerRef.current.seekTo(currentPreviewClip.start_time, true);
+                  previewPlayerRef.current.seekTo(clipStart, true);
                 } else {
                   previewPlayerRef.current.pauseVideo();
                 }
@@ -696,10 +713,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             if (ambientVideoRef.current && Math.abs(ambientVideoRef.current.currentTime - t) > 0.3) {
               ambientVideoRef.current.currentTime = t;
             }
-            if (currentPreviewClip && t >= currentPreviewClip.end_time) {
+            if (t >= clipEnd) {
               if (isLooping) {
-                directVideoRef.current.currentTime = currentPreviewClip.start_time;
-                if (ambientVideoRef.current) ambientVideoRef.current.currentTime = currentPreviewClip.start_time;
+                directVideoRef.current.currentTime = clipStart;
+                if (ambientVideoRef.current) ambientVideoRef.current.currentTime = clipStart;
               } else {
                 directVideoRef.current.pause();
                 if (ambientVideoRef.current) ambientVideoRef.current.pause();
@@ -730,7 +747,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         previewPlayerRef.current = null;
       }
     };
-  }, [videoId, previewClipIndex]);
+  }, [videoId, previewClipSourceIndex]);
 
   // When previewClipIndex changes, seek player to new clip start
   useEffect(() => {
@@ -743,7 +760,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       directVideoRef.current.currentTime = clipStart;
       if (ambientVideoRef.current) ambientVideoRef.current.currentTime = clipStart;
     }
-  }, [previewClipIndex, clipStart]);
+  }, [previewClipSourceIndex, clipStart]);
 
   const togglePlayPause = () => {
     if (previewPlayerRef.current) {
@@ -751,8 +768,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         if (isPlaying) {
           previewPlayerRef.current.pauseVideo();
         } else {
-          if (currentPreviewClip && (currentTime >= currentPreviewClip.end_time || currentTime < currentPreviewClip.start_time)) {
-            previewPlayerRef.current.seekTo(currentPreviewClip.start_time, true);
+          if (currentTime >= clipEnd || currentTime < clipStart) {
+            previewPlayerRef.current.seekTo(clipStart, true);
           }
           previewPlayerRef.current.playVideo();
         }
@@ -763,9 +780,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         if (ambientVideoRef.current) ambientVideoRef.current.pause();
         setIsPlaying(false);
       } else {
-        if (currentPreviewClip && (currentTime >= currentPreviewClip.end_time || currentTime < currentPreviewClip.start_time)) {
-          directVideoRef.current.currentTime = currentPreviewClip.start_time;
-          if (ambientVideoRef.current) ambientVideoRef.current.currentTime = currentPreviewClip.start_time;
+        if (currentTime >= clipEnd || currentTime < clipStart) {
+          directVideoRef.current.currentTime = clipStart;
+          if (ambientVideoRef.current) ambientVideoRef.current.currentTime = clipStart;
         }
         directVideoRef.current.play();
         if (ambientVideoRef.current) ambientVideoRef.current.play().catch(() => {});
@@ -1487,7 +1504,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         </div>
 
         {/* Clip preview switcher */}
-        {allClips.length > 1 && (
+        {!rankMode && allClips.length > 1 && (
           <div className="preview-clip-picker-bar">
             <span className="preview-picker-label">{t.studio.previewClip}</span>
             <select
