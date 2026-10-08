@@ -10,12 +10,14 @@ from backend.utils.text import build_clip_metadata_text
 from backend.config import (
     EXPORTS_DIR,
     TEMP_DIR,
+    build_rank_overlay_ass,
     download_clip_segment,
     generate_ass_file,
     has_emoji,
     is_valid_mp4,
     is_within_media_dirs,
     logger,
+    merge_rank_highlight,
     render_clip_to_mp4,
     render_title_overlay_png,
     transcribe_clip_words,
@@ -250,7 +252,8 @@ def update_batch_summary_and_zip(batch_id: str, settings: RenderSettingsModel):
 
     # Generate/update ZIP bundle for the batch with title-based filenames and duplicate handling
     try:
-        completed_clips = [c for c in batch["clips"] if c.get("status") == "completed" and c.get("download_url")]
+        completed_clips = [c for c in batch["clips"]
+                           if c.get("status") == "completed" and c.get("download_url") and not c.get("consumed")]
         if completed_clips:
             zip_filename = f"cheat_clip_pro_{batch_id}.zip"
             zip_path = EXPORTS_DIR / zip_filename
@@ -327,6 +330,110 @@ def prune_render_registry(max_entries: int = 50) -> None:
         overflow -= 1
 
 
+async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, target_url: str, transcript=None):
+    """
+    Builds the ranking compilation: each rank is trimmed around its hook, rendered with the normal
+    per-clip pipeline, then all of them are concatenated and given the rank overlay in a single pass.
+    """
+    batch = RENDER_BATCHES.get(batch_id)
+    if not batch:
+        return
+
+    count = max(2, min(10, int(rank_settings.rank_count or 6)))
+    seconds = max(2.0, min(30.0, float(rank_settings.clip_seconds or 5.0)))
+
+    # Rank order: explicit overrides from the UI win, otherwise the best virality score ranks first.
+    ordered = []
+    for item in (rank_settings.ranks or [])[:count]:
+        idx = item.get("clip_index")
+        if isinstance(idx, int) and 0 <= idx < len(clips):
+            ordered.append((idx, clips[idx], (item.get("label") or "").strip()))
+    if not ordered:
+        ranked = sorted(range(len(clips)), key=lambda i: float(clips[i].get("virality_score") or 0), reverse=True)
+        ordered = [(i, clips[i], "") for i in ranked[:count]]
+    ordered = ordered[:count]
+
+    ranking_title = (rank_settings.ranking_title or "").strip() or "Ranking"
+    clip_settings = settings.model_copy(deep=True)
+    clip_settings.title_position = "none"   # the ranking overlay carries the titles
+
+    rendered: List[str] = []
+    segments: List[Dict[str, Any]] = []
+    elapsed = 0.0
+    for rank_pos, (src_idx, clip, label) in enumerate(ordered):
+        c_start = float(clip.get("start_time") or 0.0)
+        c_end = float(clip.get("end_time") or (c_start + seconds))
+        hook = clip.get("hook_time")
+        begin = float(hook) if isinstance(hook, (int, float)) and c_start <= float(hook) <= max(c_start, c_end - 1.0) else c_start
+        begin = min(begin, max(c_start, c_end - seconds))
+        finish = max(min(c_end, begin + seconds), begin + 1.0)
+
+        trimmed = dict(clip)
+        trimmed["start_time"] = begin
+        trimmed["end_time"] = finish
+
+        await render_single_batch_clip(
+            batch_id=batch_id, idx=src_idx, clip=trimmed, settings=clip_settings,
+            target_url=target_url, transcript=transcript, total_clips=len(ordered),
+        )
+
+        entries = batch.get("clips") or []
+        entry = entries[src_idx] if src_idx < len(entries) else None
+        if entry:
+            entry["consumed"] = True          # baked into the ranking, not shipped on its own
+            entry["rank_position"] = rank_pos + 1
+        out_path = (entry or {}).get("output_path")
+        if out_path and os.path.exists(out_path):
+            rendered.append(out_path)
+            segments.append({
+                "label": label or (clip.get("title_suggestion") or clip.get("title") or f"Rank {rank_pos + 1}"),
+                "start": elapsed,
+                "end": elapsed + (finish - begin),
+            })
+            elapsed += (finish - begin)
+
+    if len(rendered) < 2:
+        raise RuntimeError("Only one clip rendered, so there is nothing to rank")
+
+    ass_path = str(TEMP_DIR / f"{batch_id}_rank_overlay.ass")
+    build_rank_overlay_ass(
+        ranking_title, segments, ass_path,
+        position_mode=rank_settings.position_mode or "top_left",
+        show_numbers=bool(rank_settings.show_numbers),
+        total_seconds=elapsed,
+    )
+    out_name = f"ranking_{batch_id}.mp4"
+    out_path = str(EXPORTS_DIR / out_name)
+    merge_rank_highlight(rendered, ass_path, out_path)
+
+    tags: List[str] = []
+    for _, clip, _ in ordered:
+        for tag in re.split(r"\s+", (clip.get("hashtag_suggestion") or "")):
+            if tag.startswith("#") and tag.lower() not in [t.lower() for t in tags]:
+                tags.append(tag.lower())
+    for filler in ("#fyp", "#viral", "#shorts", "#trending"):
+        if len(tags) >= 4:
+            break
+        if filler not in tags:
+            tags.append(filler)
+
+    batch.setdefault("clips", []).append({
+        "clip_index": len(batch.get("clips") or []),
+        "title": ranking_title,
+        "base_title": ranking_title,
+        "status": "completed",
+        "progress_percent": 100,
+        "download_url": f"/api/download-rendered/{out_name}",
+        "output_path": out_path,
+        "is_ranking": True,
+        "caption_suggestion": " | ".join(s["label"] for s in segments),
+        "hashtag_suggestion": " ".join(tags[:10]),
+        "seo_keywords": [],
+    })
+    batch["rank_mode"] = True
+    logger.info(f"Ranking video built: {out_name} ({len(rendered)} ranks, {elapsed:.1f}s)")
+
+
 async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
     batch = RENDER_BATCHES.get(batch_id)
     if not batch:
@@ -364,6 +471,24 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
         )
         # Fallback continuation: regardless of whether clip succeeded or failed, proceed to next clip!
         batch["current_clip_index"] = idx + 1
+
+    rank_settings = getattr(settings, "rank_highlight", None)
+    if rank_settings is not None and rank_settings.enabled and len(clips) >= 2:
+        try:
+            await _render_rank_highlight(
+                batch_id, clips, settings, rank_settings, target_url, request.transcript
+            )
+        except Exception as e:
+            logger.error(f"Ranking compilation failed for batch {batch_id}: {e}")
+            batch.setdefault("clips", []).append({
+                "clip_index": len(batch.get("clips") or []),
+                "title": (rank_settings.ranking_title or "Ranking"),
+                "base_title": (rank_settings.ranking_title or "Ranking"),
+                "status": "error",
+                "progress_percent": 0,
+                "error": str(e)[:300],
+                "is_ranking": True,
+            })
 
     update_batch_summary_and_zip(batch_id, settings)
 

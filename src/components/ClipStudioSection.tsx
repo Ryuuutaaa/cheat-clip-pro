@@ -220,6 +220,15 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [isAnalyzingSpeaker, setIsAnalyzingSpeaker] = useState(false);
   const [speakerError, setSpeakerError] = useState<string | null>(null);
 
+  // 🏆 Rank highlight: one ranked compilation built from the selected clips.
+  const [rankEnabled, setRankEnabled] = useState(false);
+  const [rankTitle, setRankTitle] = useState('');
+  const [rankCount, setRankCount] = useState(6);
+  const [rankSeconds, setRankSeconds] = useState(5);
+  const [rankPosition, setRankPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('top_left');
+  const [rankOrder, setRankOrder] = useState<number[]>([]);
+  const [rankLabels, setRankLabels] = useState<Record<number, string>>({});
+
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>('9:16');
   const [backgroundStyle, setBackgroundStyle] = useState<BackgroundStyle>('black');
   const [enableFaceTracking, setEnableFaceTracking] = useState<boolean>(true);
@@ -421,6 +430,28 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     fetchFace();
     return () => controller.abort();
   }, [videoId, previewClipIndex, clipStart, videoUrl, facecamPosition, streamerPreset]);
+
+  // Rank order defaults to best virality score first; the user can move entries afterwards.
+  const selectedClipsKey = selectedClips.map(c => `${c.start_time}_${c.end_time}`).join('|');
+  useEffect(() => {
+    setRankOrder(
+      selectedClips
+        .map((c, i) => ({ i, score: Number(c.virality_score) || 0 }))
+        .sort((a, b) => b.score - a.score)
+        .map(x => x.i)
+    );
+    setRankLabels({});
+  }, [selectedClipsKey]);
+
+  const moveRank = (position: number, delta: number) => {
+    setRankOrder(prev => {
+      const next = [...prev];
+      const target = position + delta;
+      if (target < 0 || target >= next.length) return prev;
+      [next[position], next[target]] = [next[target], next[position]];
+      return next;
+    });
+  };
 
   const analyzeSpeakerNow = async () => {
     if (isAnalyzingSpeaker || !videoId) return;
@@ -1357,6 +1388,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       subtitleCenterYPercent: safeSubCenterY,
       subtitleOffsetSec: subtitleOffset,
       selectedClips: enrichedSelectedClips,
+      rankHighlight: rankEnabled ? {
+        enabled: true,
+        rankingTitle: rankTitle.trim(),
+        rankCount,
+        clipSeconds: rankSeconds,
+        positionMode: rankPosition,
+        ranks: rankOrder.slice(0, rankCount).map(i => ({ clip_index: i, label: (rankLabels[i] || '').trim() })),
+      } : undefined,
       // Background Music
       bgmEnabled: bgmEnabled && !!bgmFilePath,
       bgmFilePath,
@@ -3273,6 +3312,111 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   );
                 })}
               </div>
+            )}
+          </div>
+
+          {/* 10. Rank Highlight — one ranked compilation instead of separate clips */}
+          <div className="studio-card-group">
+            <div className="group-header">
+              <span className="group-title">🏆 {t.studio.rankTitle}</span>
+              <span className="group-badge">{selectedClips.length} {selectedClips.length === 1 ? t.studio.clipSelectedSingle : t.studio.clipSelectedPlural}</span>
+            </div>
+
+            <div className="studio-checkbox-row" style={{ marginBottom: '0.6rem' }}>
+              <input
+                id="rankHighlightSec"
+                type="checkbox"
+                checked={rankEnabled}
+                disabled={selectedClips.length < 2}
+                onChange={(e) => setRankEnabled(e.target.checked)}
+              />
+              <label htmlFor="rankHighlightSec">
+                <strong>{t.studio.rankEnable}</strong> {selectedClips.length < 2 ? t.studio.rankNeedsTwo : t.studio.rankEnableDesc}
+              </label>
+            </div>
+
+            {rankEnabled && (
+              <>
+                <div className="batch-title-input-wrapper">
+                  <input
+                    type="text"
+                    className="batch-title-input"
+                    placeholder={t.studio.rankTitlePlaceholder}
+                    value={rankTitle}
+                    onChange={(e) => setRankTitle(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.9rem', alignItems: 'center', margin: '0.6rem 0' }}>
+                  <label style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    {t.studio.rankCountLabel}
+                    <input
+                      type="number" min={2} max={10} value={rankCount}
+                      onChange={(e) => setRankCount(Math.max(2, Math.min(10, Number(e.target.value) || 6)))}
+                      className="batch-title-input" style={{ width: '64px', padding: '0.25rem 0.5rem' }}
+                    />
+                  </label>
+                  <label style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    {t.studio.rankSecondsLabel}
+                    <input
+                      type="number" min={2} max={30} value={rankSeconds}
+                      onChange={(e) => setRankSeconds(Math.max(2, Math.min(30, Number(e.target.value) || 5)))}
+                      className="batch-title-input" style={{ width: '64px', padding: '0.25rem 0.5rem' }}
+                    />
+                  </label>
+                </div>
+
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>{t.studio.rankPositionLabel}</div>
+                <div className="pill-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.7rem' }}>
+                  {([
+                    ['top_left', t.studio.rankPosTopLeft],
+                    ['top_right', t.studio.rankPosTopRight],
+                    ['bottom_left', t.studio.rankPosBottomLeft],
+                    ['bottom_right', t.studio.rankPosBottomRight],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`pill-btn ${rankPosition === id ? 'active' : ''}`}
+                      style={{ fontSize: '0.72rem', padding: '0.24rem 0.6rem' }}
+                      onClick={() => setRankPosition(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>{t.studio.rankLabelsLabel}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '260px', overflowY: 'auto' }}>
+                  {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
+                    const clip = selectedClips[clipIdx];
+                    if (!clip) return null;
+                    const fallbackLabel = (clip.title_suggestion || clip.title || '').trim();
+                    return (
+                      <div key={`${clipIdx}-${position}`} className="batch-clip-item selected" style={{ cursor: 'default' }}>
+                        <span className="batch-title-clip-badge">{position + 1}</span>
+                        <input
+                          type="text"
+                          className="batch-title-input"
+                          placeholder={fallbackLabel || t.studio.rankLabelPlaceholder}
+                          value={rankLabels[clipIdx] ?? ''}
+                          onChange={(e) => setRankLabels(prev => ({ ...prev, [clipIdx]: e.target.value }))}
+                          style={{ flex: 1 }}
+                        />
+                        <button
+                          type="button" className="copy-mini-btn has-text" disabled={position === 0}
+                          title={t.studio.rankMoveUp} onClick={() => moveRank(position, -1)}
+                        >▲</button>
+                        <button
+                          type="button" className="copy-mini-btn has-text"
+                          disabled={position >= Math.min(rankCount, rankOrder.length) - 1}
+                          title={t.studio.rankMoveDown} onClick={() => moveRank(position, 1)}
+                        >▼</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
 

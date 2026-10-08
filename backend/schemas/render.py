@@ -1,6 +1,21 @@
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
+class RankHighlightModel(BaseModel):
+    """
+    Settings for a "ranking" compilation: several clips played in rank order inside one video with a
+    stacked list of rank labels and a headline over the whole thing.
+    """
+    enabled: bool = False
+    ranking_title: Optional[str] = None          # headline; falls back to the clip titles
+    rank_count: int = 6                          # how many ranks to include (2-10)
+    clip_seconds: float = 5.0                    # length of each ranked clip, taken from its hook
+    position_mode: str = "top_left"              # top_left | top_right | bottom_left | bottom_right
+    show_numbers: bool = True
+    # Optional per-rank overrides from the UI: [{"clip_index": int, "label": str}], in rank order.
+    ranks: Optional[List[Dict[str, Any]]] = None
+
+
 class RenderSettingsModel(BaseModel):
     aspect_ratio: str = "9:16"
     background_style: str = "black"
@@ -47,6 +62,7 @@ class RenderSettingsModel(BaseModel):
     watermark_x: Optional[float] = 90.0
     watermark_y: Optional[float] = 8.0
     hardware_accel: Optional[str] = "auto"
+    rank_highlight: Optional[RankHighlightModel] = None
 
 class RenderBatchRequest(BaseModel):
     video_url: str

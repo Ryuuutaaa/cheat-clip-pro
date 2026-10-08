@@ -111,6 +111,15 @@ export interface RenderSettings {
   subtitleCenterYPercent?: number;
   subtitleOffsetSec?: number;
   selectedClips: ViralClip[];
+  // 🏆 One ranked compilation built from the selected clips instead of separate files
+  rankHighlight?: {
+    enabled: boolean;
+    rankingTitle: string;
+    rankCount: number;
+    clipSeconds: number;
+    positionMode: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+    ranks: { clip_index: number; label: string }[];
+  };
   // Background Music
   bgmEnabled?: boolean;
   bgmFilePath?: string;

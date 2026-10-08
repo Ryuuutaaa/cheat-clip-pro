@@ -1940,6 +1940,149 @@ def escape_ass_text(text: str) -> str:
     return str(text).replace("{", "｛").replace("}", "｝").replace("\\", "＼")
 
 
+def _ass_timestamp(seconds: float) -> str:
+    """ASS wants H:MM:SS.cc — centiseconds, one digit hour."""
+    seconds = max(0.0, float(seconds))
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    return f"{hours}:{minutes:02d}:{secs:05.2f}"
+
+
+# Medal colours by place, then neutral. ASS uses &HBBGGRR&.
+RANK_ACCENT_COLORS = ["&H0000D7FF&", "&H00C0C0C0&", "&H00327FCD&"]
+
+
+def build_rank_overlay_ass(
+    ranking_title: str,
+    segments: List[Dict[str, Any]],
+    output_ass_path: str,
+    position_mode: str = "top_left",
+    show_numbers: bool = True,
+    total_seconds: Optional[float] = None,
+) -> str:
+    """
+    Writes the overlay for a ranking compilation: one headline for the whole video, plus a stacked
+    list of rank labels that appears one entry at a time as its clip starts and then stays, which is
+    what makes the list readable at the end.
+
+    `segments` carries the final timeline: [{"label": str, "start": float, "end": float}, ...] in
+    rank order (index 0 = rank 1).
+    """
+    total = float(total_seconds or (segments[-1]["end"] if segments else 0.0))
+    width, height = 1080, 1920
+
+    anchors = {
+        "top_left":     {"an": 7, "x": 70, "y_start": 470, "step": 84},
+        "top_right":    {"an": 9, "x": width - 70, "y_start": 470, "step": 84},
+        "bottom_left":  {"an": 1, "x": 70, "y_start": height - 200, "step": -84},
+        "bottom_right": {"an": 3, "x": width - 70, "y_start": height - 200, "step": -84},
+    }
+    anchor = anchors.get(position_mode, anchors["top_left"])
+
+    lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {width}",
+        f"PlayResY: {height}",
+        "WrapStyle: 0",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour,"
+        " Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline,"
+        " Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        # Headline: heavy, white with a dark outline so it survives any background.
+        "Style: RankTitle,Outfit,74,&H00FFFFFF,&H00FFFFFF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,"
+        "1,4,2,8,60,60,80,1",
+        # List entries: a rank number and its label, left aligned against the anchor point.
+        "Style: RankItem,Outfit,52,&H00FFFFFF,&H00FFFFFF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,"
+        "1,3,2,7,60,60,60,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+
+    if ranking_title.strip():
+        lines.append(
+            f"Dialogue: 0,{_ass_timestamp(0)},{_ass_timestamp(total)},RankTitle,,0,0,0,,"
+            f"{{\\an8\\pos({width // 2},{110})}}{ranking_title.strip().upper()}"
+        )
+
+    for idx, seg in enumerate(segments):
+        label = str(seg.get("label") or f"Rank {idx + 1}").strip()
+        start = float(seg.get("start", 0.0))
+        end = float(seg.get("end", start + 5.0))
+        # Progressive reveal, then the entry stays on screen until the video ends.
+        reveal_at = start
+        y = anchor["y_start"] + idx * anchor["step"]
+        colour = RANK_ACCENT_COLORS[idx] if idx < len(RANK_ACCENT_COLORS) else "&H00ECECEC&"
+        number = f"{idx + 1}. " if show_numbers else ""
+        text = f"{{\\an{anchor['an']}\\pos({anchor['x']},{y})}}{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
+        lines.append(f"Dialogue: 0,{_ass_timestamp(reveal_at)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")
+        # Keep the variable in use so a future per-segment end can be honoured without a rewrite.
+        _ = end
+
+    Path(output_ass_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logger.info(f"Rank overlay written: {output_ass_path} ({len(segments)} ranks, {position_mode})")
+    return output_ass_path
+
+
+def merge_rank_highlight(
+    clip_paths: List[str],
+    overlay_ass_path: str,
+    output_path: str,
+    timeout_sec: int = 900,
+) -> str:
+    """
+    Concatenates the rendered rank clips and burns the ranking overlay in a single pass.
+
+    Every clip comes out of the same renderer with identical codec, size and frame rate, which is
+    exactly what the concat demuxer needs.
+    """
+    if not clip_paths:
+        raise RuntimeError("No rendered clips to merge for the ranking video")
+
+    work_dir = Path(output_path).parent
+    list_path = work_dir / f"{Path(output_path).stem}_concat.txt"
+    list_path.write_text(
+        "".join(f"file '{str(Path(p).resolve()).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n"
+                for p in clip_paths),
+        encoding="utf-8",
+    )
+
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "concat", "-safe", "0", "-i", str(list_path),
+    ]
+    if overlay_ass_path and os.path.exists(overlay_ass_path):
+        raw_ass = str(Path(overlay_ass_path).resolve()).replace("\\", "/")
+        escaped = raw_ass.replace(":", "\\:").replace("'", "'\\''")
+        fonts = f":fontsdir='{str(FONTS_DIR.resolve()).replace(chr(92), '/')}'" if FONTS_DIR.exists() and any(FONTS_DIR.glob("*.ttf")) else ""
+        cmd += ["-vf", f"subtitles='{escaped}'{fonts}"]
+    else:
+        cmd += ["-vf", "null"]
+
+    cmd += [
+        *ACTIVE_ENCODER_ARGS,
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        "-avoid_negative_ts", "make_zero",
+        str(output_path),
+    ]
+
+    logger.info(f"Merging {len(clip_paths)} ranked clips into {output_path}")
+    res = run_managed(cmd, timeout_sec)
+    try:
+        list_path.unlink()
+    except Exception:
+        pass
+
+    if res.returncode != 0 or not os.path.exists(output_path) or not is_valid_mp4(output_path):
+        raise RuntimeError(f"Ranking merge failed: {(res.stderr or '')[:300] or 'unknown ffmpeg error'}")
+    return str(output_path)
+
+
 def generate_ass_file(
     words: List[Dict[str, Any]],
     style_preset: str,

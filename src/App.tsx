@@ -365,6 +365,15 @@ export default function App() {
             watermark_y: settings.watermarkY !== undefined ? settings.watermarkY : 8.0,
             // Hardware Acceleration / Encoder
             hardware_accel: settings.hardwareAccel || 'auto',
+            rank_highlight: settings.rankHighlight ? {
+              enabled: settings.rankHighlight.enabled,
+              ranking_title: settings.rankHighlight.rankingTitle || null,
+              rank_count: settings.rankHighlight.rankCount,
+              clip_seconds: settings.rankHighlight.clipSeconds,
+              position_mode: settings.rankHighlight.positionMode,
+              show_numbers: true,
+              ranks: settings.rankHighlight.ranks,
+            } : undefined,
           },
           transcript: result.transcript,
         }),
