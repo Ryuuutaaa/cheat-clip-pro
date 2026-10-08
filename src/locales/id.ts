@@ -542,6 +542,8 @@ export const id: Translations = {
     errorDetails: "Rincian Log Error",
     retryHint: "💡 Tip: Periksa cookies YouTube atau koneksi internet jika unduhan gagal.",
     processingClip: (curr: number, total: number) => `Memproses klip ${curr} dari ${total}...`,
+    processingRanking: (count: number) => `Menyusun video ranking dari ${count} klip...`,
+    rankingRendered: "🎉 Video ranking selesai dirender!",
     dismissQueue: "Tutup Antrean",
     statusWaitingShort: "⏳ Menunggu",
     statusSlicingShort: "⚡ Memotong (15%)",

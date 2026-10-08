@@ -413,6 +413,30 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     : (currentPreviewClip ? currentPreviewClip.end_time : 60);
   const clipDuration = Math.max(1, clipEnd - clipStart);
 
+  // Rank page: the ranked clips are only parts of one deliverable, so the queue shows the single
+  // ranking video being built instead of a list of clips that never ship on their own.
+  const queueClips = (() => {
+    const clips = batchProgress?.clips || [];
+    if (!rankMode || !rankEnabled || clips.length === 0) return clips;
+    const percent = Math.round(
+      clips.reduce((sum, c) => sum + (c.status === 'completed' ? 100 : Number(c.progress_percent) || 0), 0) / clips.length
+    );
+    const status = clips.every(c => c.status === 'completed')
+      ? 'completed'
+      : clips.some(c => c.status === 'error')
+      ? 'error'
+      : clips.some(c => c.status === 'rendering')
+      ? 'rendering'
+      : 'pending';
+    return [{
+      ...clips[0],
+      title: rankTitle.trim() || t.studio.rankTitlePlaceholder,
+      base_title: rankTitle.trim() || 'ranking',
+      status,
+      progress_percent: percent,
+    } as typeof clips[number]];
+  })();
+
   // Fetch face/object detection coordinates.
   // Each request is expensive on the server (it extracts a frame from the source video), so
   // results are cached per clip + framing and superseded requests are aborted rather than left
@@ -4309,9 +4333,13 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       {batchProgress.overall_status === 'completed'
                         ? (batchProgress.clips.some(c => c.status === 'error')
                             ? t.studio.someClipsFailed(batchProgress.clips.filter(c => c.status === 'error').length, batchProgress.total_clips)
+                            : rankMode && rankEnabled
+                            ? t.studio.rankingRendered
                             : t.studio.allClipsRendered(batchProgress.total_clips))
                         : batchProgress.overall_status === 'error'
                         ? (batchProgress.error_message || t.studio.allClipsFailed)
+                        : rankMode && rankEnabled
+                        ? t.studio.processingRanking(batchProgress.clips.length)
                         : t.studio.processingClip((batchProgress.current_clip_index || 0) + 1, batchProgress.total_clips)}
                     </p>
                   </div>
@@ -4428,14 +4456,24 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     ></div>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                    <span>{t.batchProgress.completedMeta(batchProgress.clips.filter(c => c.status === 'completed').length, batchProgress.total_clips)}</span>
+                    <span>
+                      {rankMode && rankEnabled
+                        ? t.batchProgress.completedMeta(
+                            batchProgress.clips.every(c => c.status === 'completed') ? 1 : 0,
+                            1
+                          )
+                        : t.batchProgress.completedMeta(
+                            batchProgress.clips.filter(c => c.status === 'completed').length,
+                            batchProgress.total_clips
+                          )}
+                    </span>
                     <span>{getOverallPercent(batchProgress.clips, batchProgress.total_clips)}%</span>
                   </div>
                 </div>
 
                 {/* Render Items List */}
                 <div className="batch-render-items-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.6rem' }}>
-                  {batchProgress.clips.map((clip, idx) => {
+                  {queueClips.map((clip, idx) => {
                     let rawBaseTitle = (clip.base_title || '').trim();
                     if (!rawBaseTitle) {
                       let t = (clip.title || `clip_${idx + 1}`).trim();

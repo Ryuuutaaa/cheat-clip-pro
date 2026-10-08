@@ -540,6 +540,8 @@ export const en = {
     errorDetails: "Technical Error Details",
     retryHint: "💡 Tip: Check your YouTube cookies or network connection if download failed.",
     processingClip: (curr: number, total: number) => `Processing clip ${curr} of ${total}...`,
+    processingRanking: (count: number) => `Building the ranking video from ${count} clips...`,
+    rankingRendered: "🎉 Ranking video finished rendering!",
     dismissQueue: "Dismiss Queue",
     statusWaitingShort: "⏳ Waiting",
     statusSlicingShort: "⚡ Slicing (15%)",
