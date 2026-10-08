@@ -455,7 +455,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       : 'pending';
     return [{
       ...clips[0],
-      title: rankTitle.trim() || t.studio.rankTitlePlaceholder,
+      title: rankTitle.trim() || t.studio.rankingDefault,
       base_title: rankTitle.trim() || 'ranking',
       status,
       progress_percent: percent,
@@ -3479,7 +3479,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         allow="autoplay; encrypted-media; picture-in-picture"
                       />
                     ) : null}
-                    <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankTitlePlaceholder}</div>
+                    <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankingDefault}</div>
                     <div className={`rank-preview-list pos-${rankPosition}`}>
                       {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
                         const clip = selectedClips[clipIdx];
@@ -3758,7 +3758,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   corner. z-index keeps it above the video layers regardless of DOM order. */}
               {rankMode && (
                 <div className="rank-preview-inframe">
-                  <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankTitlePlaceholder}</div>
+                  <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankingDefault}</div>
                   <div className={`rank-preview-list pos-${rankPosition}`}>
                     {/* One label at a time in the export, so the preview shows only the rank being
                         previewed rather than the whole list. */}

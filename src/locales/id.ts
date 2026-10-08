@@ -460,6 +460,7 @@ export const id: Translations = {
     rankEnableDesc: "menggabungkan klip terpilih jadi SATU video, diberi peringkat dengan daftar label bertumpuk.",
     rankNeedsTwo: "pilih minimal 2 klip untuk membuat ranking.",
     rankTitlePlaceholder: "Judul video, mis. Ranking Momen Terbaik",
+    rankingDefault: "Ranking",
     rankCountLabel: "Jumlah peringkat:",
     rankSecondsLabel: "Detik per klip:",
     rankDurAuto: "Auto (ikut batas kalimat)",

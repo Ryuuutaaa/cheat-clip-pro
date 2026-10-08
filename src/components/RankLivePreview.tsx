@@ -181,6 +181,28 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   };
 
   const ratioClass = `ratio-${(aspectRatio || '9:16').replace(':', '-')}`;
+  const isLetterbox = aspectRatio === '16:9_letterbox';
+  // The export crops the 16:9 source into the frame (except letterbox). The direct video does that
+  // with object-fit, but a YouTube iframe always renders 16:9, so it must be over-scaled to the
+  // point where the frame is filled and the sides fall outside — the centre crop the export starts
+  // from (face tracking refines it at render time).
+  const ytCropWidthPct: Record<string, number> = {
+    '9:16': 316,
+    '1:1': 178,
+    '4:3': 133,
+    '16:9_landscape': 100,
+    '16:9_letterbox': 100,
+  };
+  const ytSlotStyle = isLetterbox
+    ? { position: 'absolute' as const, inset: 0 }
+    : {
+        position: 'absolute' as const,
+        top: 0,
+        bottom: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: `${ytCropWidthPct[aspectRatio] || 316}%`,
+      };
 
   return (
     <div className="rank-live-preview">
@@ -192,10 +214,17 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
             muted
             playsInline
             onTimeUpdate={handleTimeUpdate}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#000' }}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: isLetterbox ? 'contain' : 'cover',
+              background: '#000',
+            }}
           />
         ) : videoId ? (
-          <div id="rank-live-yt-slot" style={{ position: 'absolute', inset: 0 }} />
+          <div id="rank-live-yt-slot" style={ytSlotStyle} />
         ) : (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '0 1rem', textAlign: 'center' }}>
             {t.studio.rankNoPreview}
@@ -203,7 +232,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
         )}
 
         <div className="rank-live-overlay">
-          <div className="rank-preview-title">{title.trim() || t.studio.rankTitlePlaceholder}</div>
+          <div className="rank-preview-title">{title.trim() || t.studio.rankingDefault}</div>
           <div className={`rank-preview-list rank-live-list pos-${position}`}>
             {shown.map(e => (
               <div key={`${e.rank}-${e.start}`} className="rank-preview-item">
