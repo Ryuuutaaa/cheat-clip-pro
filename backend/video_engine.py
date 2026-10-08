@@ -2061,8 +2061,13 @@ def build_rank_overlay_ass(
 
     for idx, seg in enumerate(segments):
         label = str(seg.get("label") or f"Rank {idx + 1}").strip()
-        if len(label) > max_label_chars:
-            label = label[: max(0, max_label_chars - 1)] + "…"
+        # Labels are never cut with an ellipsis: a long label shrinks its own font instead so it
+        # still fits inside the frame. max_label_chars > 0 optionally trims at a word boundary.
+        if max_label_chars and len(label) > max_label_chars:
+            trimmed = label[:max_label_chars]
+            if " " in trimmed:
+                trimmed = trimmed.rsplit(" ", 1)[0]
+            label = trimmed
         start = float(seg.get("start", 0.0))
         end = float(seg.get("end", start + 5.0))
         try:
@@ -2075,8 +2080,13 @@ def build_rank_overlay_ass(
         y = _y_for(rank_number)
         colour = RANK_ACCENT_COLORS[rank_number - 1] if 1 <= rank_number <= len(RANK_ACCENT_COLORS) else "&H00ECECEC&"
         number = f"{rank_number}. " if show_numbers else ""
+        # Auto-fit: shrink this line's font when the text would run past the frame edge, so the
+        # label stays whole and still lands inside the clip.
+        est_width = (len(label) + len(number) + 1) * font_size * 0.56
+        avail = max(200.0, float(width) - list_x - 40.0)
+        line_fs = font_size if est_width <= avail else max(18, int(font_size * avail / est_width))
         text = (
-            f"{{\\an{anchor['an']}\\pos({list_x},{y})}}{{\\fs{font_size}}}{bold_tag}{border_tag}"
+            f"{{\\an{anchor['an']}\\pos({list_x},{y})}}{{\\fs{line_fs}}}{bold_tag}{border_tag}"
             f"{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
         )
         lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")

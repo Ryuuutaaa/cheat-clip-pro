@@ -1422,3 +1422,36 @@ async def suggest_rank_title(request: Dict = Body(...)):
         return {"title": title or titles[0]}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Title suggestion failed: {str(e)[:200]}")
+
+
+@router.post("/api/rank-labels")
+async def suggest_rank_labels(request: Dict = Body(...)):
+    """Writes very short labels (2-4 words) for the rank list, one per clip title."""
+    titles = [str(t).strip() for t in (request.get("clip_titles") or []) if str(t).strip()][:12]
+    if not titles:
+        raise HTTPException(status_code=400, detail="No clip titles provided")
+    gemini_key = (request.get("api_key") or os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not gemini_key:
+        raise HTTPException(status_code=400, detail="Gemini API key is required for label suggestions")
+    prompt = (
+        "You write VERY short labels for the ranked list burned into a short video. "
+        "For each clip title below, answer with a label of 2 to 4 words and at most 20 characters, "
+        "no punctuation, no quotes, no hashtags, in the same language as the title, "
+        "capturing the most interesting thing that happens. "
+        'Return ONLY a JSON array of strings in the same order, for example ["Wife Slip Up","Red Card"].'
+        "\n\nClip titles:\n" + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(titles))
+    )
+    try:
+        client = genai.Client(api_key=gemini_key)
+        resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+        raw = (resp.text or "").strip()
+        start, end = raw.find("["), raw.rfind("]")
+        labels = json.loads(raw[start:end + 1]) if start != -1 and end != -1 else []
+        labels = [str(x).strip()[:20] for x in labels if str(x).strip()]
+        if len(labels) < len(titles):
+            labels += [t[:20] for t in titles[len(labels):]]
+        return {"labels": labels[:len(titles)]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Label suggestion failed: {str(e)[:200]}")

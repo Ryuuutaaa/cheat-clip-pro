@@ -17,7 +17,7 @@ class RankHighlightModel(BaseModel):
     # Draw a duration line under every rank label that fills while that rank plays
     show_progress_bars: bool = True
     # Layout controls for the whole rank list
-    max_label_chars: int = 30                # labels are cut at this length
+    max_label_chars: int = 0                 # 0 = never cut (the font auto-fits instead)
     spacing_y: int = 0                       # row gap in px (0 = the anchor default)
     offset_x: int = 0                        # horizontal shift of the whole list
     offset_y: int = 0                        # vertical shift of the whole list

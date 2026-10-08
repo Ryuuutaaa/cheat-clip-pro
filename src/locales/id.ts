@@ -485,6 +485,7 @@ export const id: Translations = {
     rankPosBottomRight: "↘ Kanan bawah",
     rankLabelsLabel: "Label tiap peringkat — kosongkan untuk memakai judul klip:",
     rankDragHint: "seret untuk mengurutkan",
+    rankShortLabels: "Label pendek (AI)",
     rankLayoutLabel: "Tata letak daftar",
     rankDragListHint: "seret daftarnya langsung di preview",
     rankOffsetXLabel: "Posisi X",

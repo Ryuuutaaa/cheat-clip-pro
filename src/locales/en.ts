@@ -483,6 +483,7 @@ export const en = {
     rankPosBottomRight: "↘ Bottom right",
     rankLabelsLabel: "Label per rank — leave empty to use the clip title:",
     rankDragHint: "drag to reorder",
+    rankShortLabels: "Short labels (AI)",
     rankLayoutLabel: "List layout",
     rankDragListHint: "drag the list right in the preview",
     rankOffsetXLabel: "X position",

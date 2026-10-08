@@ -121,7 +121,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   const frameW = frameRef.current?.clientWidth || 338;
   const toPx = (v: number) => v * (frameW / 1080);
   const weightFont: Record<string, number> = { regular: 500, semibold: 600, bold: 700, heavy: 900 };
-  const trunc = (s: string) => (s.length > 30 ? `${s.slice(0, 29)}…` : s);
+  const trunc = (s: string) => s;
   const clampScale = Math.max(0.5, Math.min(2.0, Number(scale) || 1));
 
   // Figma-style dragging: press anywhere on the list and move it; a small threshold keeps label

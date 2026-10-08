@@ -242,6 +242,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankOffsetY, setRankOffsetY] = useState(0);
   const [rankScale, setRankScale] = useState(1);
   const [rankWeight, setRankWeight] = useState<'regular' | 'semibold' | 'bold' | 'heavy'>('bold');
+  const [rankLabelsBusy, setRankLabelsBusy] = useState(false);
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankAutoOrder, setRankAutoOrder] = useState(false);
   const [rankOrderBusy, setRankOrderBusy] = useState(false);
@@ -599,6 +600,37 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       next.splice(to, 0, moved);
       return next;
     });
+  };
+
+  // Short, overlay-friendly labels from the model: 2-4 words per rank so nothing ever needs cutting.
+  const handleShortLabels = async () => {
+    const ordered = rankOrder.slice(0, rankCount).map(i => ({ idx: i, clip: selectedClips[i] })).filter(x => x.clip);
+    const titles = ordered.map(x => (x.clip.title_suggestion || x.clip.title || '').trim()).filter(Boolean);
+    if (!titles.length) return;
+    setRankLabelsBusy(true);
+    try {
+      const resp = await resilientFetch('/api/rank-labels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clip_titles: titles }),
+      });
+      const data = await resp.json();
+      const labels: string[] = Array.isArray(data.labels) ? data.labels : [];
+      if (labels.length) {
+        setRankLabels(prev => {
+          const next = { ...prev };
+          ordered.forEach((entry, pos) => {
+            // Fill only the ranks the user has not labelled by hand.
+            if (!(next[entry.idx] || '').trim() && labels[pos]) next[entry.idx] = labels[pos];
+          });
+          return next;
+        });
+      }
+    } catch {
+      // keep the current labels when the suggestion cannot be fetched
+    } finally {
+      setRankLabelsBusy(false);
+    }
   };
 
   // Which rank's clip is playing in the rank preview, and how to play it for this source type.
@@ -3564,9 +3596,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
                         const clip = selectedClips[clipIdx];
                         if (!clip) return null;
-                        const rawLabel = (rankLabels[clipIdx] || '').trim() ||
+                        const label = (rankLabels[clipIdx] || '').trim() ||
                           (clip.title_suggestion || clip.title || `Rank ${position + 1}`);
-                        const label = rawLabel.length > 30 ? `${rawLabel.slice(0, 29)}…` : rawLabel;
                         return (
                           <div key={`${clipIdx}-${position}`} className="rank-preview-item">
                             <span className={`rank-preview-num ${position < 3 ? `medal-${position + 1}` : ''}`}>{position + 1}.</span>
@@ -3803,9 +3834,21 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <p style={{ fontSize: '0.7rem', color: '#f87171', margin: '-0.4rem 0 0.7rem' }}>{rankOrderError}</p>
                 )}
 
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
-                  {t.studio.rankLabelsLabel}
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}> · {t.studio.rankDragHint}</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                    {t.studio.rankLabelsLabel}
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}> · {t.studio.rankDragHint}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-quiet"
+                    onClick={handleShortLabels}
+                    disabled={rankLabelsBusy || selectedClips.length === 0}
+                    style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', flexShrink: 0 }}
+                    title={t.studio.rankShortLabels}
+                  >
+                    {rankLabelsBusy ? '…' : '✨'} {t.studio.rankShortLabels}
+                  </button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '260px', overflowY: 'auto' }}>
                   {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
@@ -3833,7 +3876,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         <input
                           type="text"
                           className="batch-title-input"
-                          placeholder={(fallbackLabel.length > 30 ? `${fallbackLabel.slice(0, 29)}…` : fallbackLabel) || t.studio.rankLabelPlaceholder}
+                          placeholder={fallbackLabel || t.studio.rankLabelPlaceholder}
                           value={rankLabels[clipIdx] ?? ''}
                           maxLength={30}
                           onChange={(e) => setRankLabels(prev => ({ ...prev, [clipIdx]: e.target.value }))}
