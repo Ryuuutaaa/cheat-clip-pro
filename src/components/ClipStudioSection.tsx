@@ -466,6 +466,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       .reverse();
   })();
 
+  // The finished ranking file, offered to the preview once the batch completes.
+  const rankRenderedUrl = (batchProgress?.clips || []).find(c => c.is_ranking && c.status === 'completed')?.download_url || undefined;
+
   // Rank page: the ranked clips are only parts of one deliverable, so the queue shows the single
   // ranking video being built instead of a list of clips that never ship on their own.
   const queueClips = (() => {
@@ -577,6 +580,18 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       const target = position + delta;
       if (target < 0 || target >= next.length) return prev;
       [next[position], next[target]] = [next[target], next[position]];
+      return next;
+    });
+  };
+
+  const moveRankTo = (from: number, to: number) => {
+    if (from === to) return;
+    setRankAutoOrder(false);   // a manual arrangement takes over from the smart order
+    setRankOrder(prev => {
+      if (from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
       return next;
     });
   };
@@ -3695,6 +3710,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           transcript,
                           heatmap_points: heatmap,
                           clip_seconds: rankSecondsMode === 'auto' ? 0 : rankSeconds,
+                          weights: [0.55, 0.15, 0.15, 0.15],
                         };
                         const resp = await resilientFetch('/api/rank-order', {
                           method: 'POST',
@@ -3726,14 +3742,32 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <p style={{ fontSize: '0.7rem', color: '#f87171', margin: '-0.4rem 0 0.7rem' }}>{rankOrderError}</p>
                 )}
 
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>{t.studio.rankLabelsLabel}</div>
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                  {t.studio.rankLabelsLabel}
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}> · {t.studio.rankDragHint}</span>
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '260px', overflowY: 'auto' }}>
                   {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
                     const clip = selectedClips[clipIdx];
                     if (!clip) return null;
                     const fallbackLabel = (clip.title_suggestion || clip.title || '').trim();
                     return (
-                      <div key={`${clipIdx}-${position}`} className="batch-clip-item selected" style={{ cursor: 'default' }}>
+                      <div
+                        key={`${clipIdx}-${position}`}
+                        className="batch-clip-item selected"
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', String(position));
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const from = Number(e.dataTransfer.getData('text/plain'));
+                          if (!Number.isNaN(from)) moveRankTo(from, position);
+                        }}
+                        style={{ cursor: 'grab' }}
+                      >
                         <span className="batch-title-clip-badge">{position + 1}</span>
                         <input
                           type="text"
@@ -3874,6 +3908,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 captionFontSize={fontSize}
                 textCase={textCase}
                 transcript={transcript}
+                renderedUrl={rankRenderedUrl}
               />
             )}
 

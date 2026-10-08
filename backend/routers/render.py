@@ -59,9 +59,19 @@ async def compute_rank_order(payload: Dict = Body(...)):
         if candidate.exists():
             source_path = str(candidate)
 
-    if os.environ.get("RANK_USE_MULTIMODAL") == "1":
-        raw_w = [float(x) for x in (os.environ.get("RANK_SCORE_WEIGHTS") or "0.55,0.15,0.15,0.15").split(",")]
-        weights = tuple(x / (sum(raw_w) or 1.0) for x in raw_w) if len(raw_w) == 4 else (0.55, 0.15, 0.15, 0.15)
+    # Optional per-request weights make the smart order work without any environment flag.
+    weights = None
+    body_weights = payload.get("weights")
+    if isinstance(body_weights, list) and len(body_weights) == 4:
+        try:
+            weights = tuple(float(x) for x in body_weights)
+        except (TypeError, ValueError):
+            weights = None
+
+    if os.environ.get("RANK_USE_MULTIMODAL") == "1" or weights is not None:
+        if weights is None:
+            raw_w = [float(x) for x in (os.environ.get("RANK_SCORE_WEIGHTS") or "0.55,0.15,0.15,0.15").split(",")]
+            weights = tuple(x / (sum(raw_w) or 1.0) for x in raw_w) if len(raw_w) == 4 else (0.55, 0.15, 0.15, 0.15)
         scored = await asyncio.to_thread(
             compute_multimodal_order, clips, transcript, heatmap, source_path,
             len(clips), weights, auto_seconds, seconds,
@@ -76,7 +86,7 @@ async def compute_rank_order(payload: Dict = Body(...)):
         {"clip_index": idx, "rank": pos + 1, "score": round(float(score), 4)}
         for pos, (score, idx) in enumerate(scored)
     ]
-    return {"order": order, "multimodal": os.environ.get("RANK_USE_MULTIMODAL") == "1"}
+    return {"order": order, "multimodal": os.environ.get("RANK_USE_MULTIMODAL") == "1" or weights is not None}
 
 
 @router.post("/api/render-batch")

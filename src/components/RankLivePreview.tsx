@@ -29,6 +29,8 @@ interface RankLivePreviewProps {
   captionFontSize?: string;
   textCase?: string;
   transcript?: TranscriptLine[];
+  /** The finished ranking file, once the batch is done — the preview can play it directly. */
+  renderedUrl?: string;
 }
 
 /**
@@ -52,6 +54,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   captionFontSize = 'medium',
   textCase = 'capitalize',
   transcript = [],
+  renderedUrl,
 }) => {
   const { t } = useLanguage();
   const directRef = useRef<HTMLVideoElement | null>(null);
@@ -69,6 +72,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   const [muted, setMuted] = useState(true);
   const [playerError, setPlayerError] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [viewMode, setViewMode] = useState<'sequence' | 'rendered'>('sequence');
 
   const timedWords = useMemo(() => buildTimedWords(transcript), [transcript]);
   const wordChunks = useMemo(() => buildWordChunks(timedWords), [timedWords]);
@@ -294,7 +298,17 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   return (
     <div className="rank-live-preview">
       <div className={`rank-live-frame ${ratioClass}`}>
-        {isDirect ? (
+        {renderedUrl && viewMode === 'rendered' ? (
+          <>
+            <video
+              src={renderedUrl}
+              controls
+              playsInline
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
+            />
+            <div className="rank-live-rendered-badge">{t.studio.rankRenderedBadge}</div>
+          </>
+        ) : isDirect ? (
           <video
             ref={directRef}
             src={videoUrl || (videoId ? `/api/video/${videoId}` : '')}
@@ -382,6 +396,17 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
         <button type="button" className="rank-live-btn" onClick={toggleMute} aria-label={t.studio.rankMute}>
           {muted ? '🔇' : '🔊'}
         </button>
+        {renderedUrl && (
+          <button
+            type="button"
+            className="rank-live-btn"
+            onClick={() => setViewMode(v => (v === 'sequence' ? 'rendered' : 'sequence'))}
+            title={viewMode === 'sequence' ? t.studio.rankViewRendered : t.studio.rankViewSequence}
+            aria-label={viewMode === 'sequence' ? t.studio.rankViewRendered : t.studio.rankViewSequence}
+          >
+            🎞
+          </button>
+        )}
         <span className="rank-live-progress">
           {active ? `${t.studio.rankWord} ${active.rank}/${entries.length} · ${active.label}` : ''}
         </span>
