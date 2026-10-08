@@ -1014,9 +1014,9 @@ h1, h2, h3, h4 {
 .rank-live-frame.ratio-16-9_landscape { aspect-ratio: 16 / 9; }
 
 /* The YouTube API replaces its target element with an iframe, so the crop must live on the iframe
-   itself. The iframe must STAY 16:9 — if its box becomes square the player letterboxes the video
-   inside it and the frame ends up with black bands. Keeping the ratio and over-scaling the height
-   (width follows from aspect-ratio) crops the sides into the frame. */
+   itself — the same approach the clip page's preview uses, which is known to work. The iframe must
+   stay 16:9: if its box becomes square the player letterboxes the video inside it. Per-ratio widths
+   follow H*16/9 for the crop modes, and !important wins over any inline sizing the widget sets. */
 .rank-live-yt-wrap {
   position: absolute;
   inset: 0;
@@ -1025,22 +1025,24 @@ h1, h2, h3, h4 {
 }
 
 .rank-live-yt-wrap iframe {
-  position: absolute;
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
   border: none;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
   aspect-ratio: 16 / 9;
-  height: 100%;
-  width: auto;
+  height: auto;
   pointer-events: none;
 }
 
+/* Crop modes: the width covers the frame's height, sides fall outside the clipped wrapper */
+.rank-live-frame.ratio-9-16 .rank-live-yt-wrap iframe { width: 316%; }
+.rank-live-frame.ratio-1-1 .rank-live-yt-wrap iframe { width: 178%; }
+.rank-live-frame.ratio-4-3 .rank-live-yt-wrap iframe { width: 133.3%; }
+.rank-live-frame.ratio-16-9_landscape .rank-live-yt-wrap iframe { width: 100%; }
+
 /* Letterbox: the whole 16:9 source visible inside the portrait canvas */
-.rank-live-frame.ratio-16-9 .rank-live-yt-wrap iframe {
-  width: 100%;
-  height: auto;
-}
+.rank-live-frame.ratio-16-9 .rank-live-yt-wrap iframe { width: 100%; }
 
 .rank-live-overlay {
   position: absolute;
