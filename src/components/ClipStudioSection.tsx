@@ -1434,7 +1434,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         clipSeconds: rankSecondsMode === 'auto' ? 0 : rankSeconds,
         positionMode: rankPosition,
         showScores: rankShowScores !== 'off',
-        ranks: rankOrder.slice(0, rankCount).map(i => ({ clip_index: i, label: (rankLabels[i] || '').trim() })),
+        // Ranks are numbered 1..N with the best first, but the video plays them in countdown order so
+        // the number-one moment lands last. The explicit `rank` keeps the on-screen numbers correct
+        // even though the playback order is reversed.
+        ranks: rankOrder.slice(0, rankCount)
+          .map((i, pos) => ({ clip_index: i, label: (rankLabels[i] || '').trim(), rank: pos + 1 }))
+          .reverse(),
       } : undefined,
       // Background Music
       bgmEnabled: bgmEnabled && !!bgmFilePath,
@@ -3675,18 +3680,21 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 <div className="rank-preview-inframe">
                   <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankTitlePlaceholder}</div>
                   <div className={`rank-preview-list pos-${rankPosition}`}>
-                    {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
-                      const clip = selectedClips[clipIdx];
+                    {/* One label at a time in the export, so the preview shows only the rank being
+                        previewed rather than the whole list. */}
+                    {(() => {
+                      const previewPosition = Math.min(Math.max(rankPreviewIdx, 0), Math.max(rankOrder.slice(0, rankCount).length - 1, 0));
+                      const clipIdx = rankOrder[previewPosition];
+                      const clip = clipIdx !== undefined ? selectedClips[clipIdx] : null;
                       if (!clip) return null;
-                      const label = (rankLabels[clipIdx] || '').trim() ||
-                        (clip.title_suggestion || clip.title || `Rank ${position + 1}`);
+                      const label = (rankLabels[clipIdx] || '').trim() || clip.title_suggestion || clip.title || `Rank ${previewPosition + 1}`;
                       return (
-                        <div key={`${clipIdx}-${position}`} className="rank-preview-item">
-                          <span className={`rank-preview-num ${position < 3 ? `medal-${position + 1}` : ''}`}>{position + 1}.</span>
+                        <div className="rank-preview-item">
+                          <span className={`rank-preview-num ${previewPosition < 3 ? `medal-${previewPosition + 1}` : ''}`}>{previewPosition + 1}.</span>
                           <span className="rank-preview-label">{label}</span>
                         </div>
                       );
-                    })}
+                    })()}
                   </div>
                 </div>
               )}

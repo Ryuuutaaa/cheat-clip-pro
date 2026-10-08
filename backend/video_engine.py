@@ -2013,15 +2013,18 @@ def build_rank_overlay_ass(
         label = str(seg.get("label") or f"Rank {idx + 1}").strip()
         start = float(seg.get("start", 0.0))
         end = float(seg.get("end", start + 5.0))
-        # Progressive reveal, then the entry stays on screen until the video ends.
-        reveal_at = start
-        y = anchor["y_start"] + idx * anchor["step"]
-        colour = RANK_ACCENT_COLORS[idx] if idx < len(RANK_ACCENT_COLORS) else "&H00ECECEC&"
-        number = f"{idx + 1}. " if show_numbers else ""
+        # One label at a time: an entry shows while its own clip plays and disappears when the next
+        # one starts, so the overlay follows the ranking instead of walling the frame with text.
+        try:
+            rank_number = int(seg.get("rank", idx + 1))
+        except (TypeError, ValueError):
+            rank_number = idx + 1
+        # Only one entry is ever visible, so they all share the anchor slot rather than stacking.
+        y = anchor["y_start"]
+        colour = RANK_ACCENT_COLORS[rank_number - 1] if 1 <= rank_number <= len(RANK_ACCENT_COLORS) else "&H00ECECEC&"
+        number = f"{rank_number}. " if show_numbers else ""
         text = f"{{\\an{anchor['an']}\\pos({anchor['x']},{y})}}{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
-        lines.append(f"Dialogue: 0,{_ass_timestamp(reveal_at)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")
-        # Keep the variable in use so a future per-segment end can be honoured without a rewrite.
-        _ = end
+        lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},RankItem,,0,0,0,,{text}")
 
     Path(output_ass_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
     logger.info(f"Rank overlay written: {output_ass_path} ({len(segments)} ranks, {position_mode})")

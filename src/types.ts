@@ -119,7 +119,7 @@ export interface RenderSettings {
     clipSeconds: number;
     positionMode: 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
     showScores?: boolean;
-    ranks: { clip_index: number; label: string }[];
+    ranks: { clip_index: number; label: string; rank?: number }[];
   };
   // Background Music
   bgmEnabled?: boolean;

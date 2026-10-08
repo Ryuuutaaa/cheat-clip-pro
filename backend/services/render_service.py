@@ -379,21 +379,27 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         return min(clip_end, start + RANK_AUTO_FALLBACK_SECONDS)
 
     # Rank order: explicit overrides from the UI win, otherwise the best virality score ranks first.
+    # Each entry carries the number shown on screen, so the video can play in countdown order while
+    # the numbering stays 1..N.
     ordered = []
-    for item in (rank_settings.ranks or [])[:count]:
+    for pos, item in enumerate((rank_settings.ranks or [])[:count]):
         idx = item.get("clip_index")
         if isinstance(idx, int) and 0 <= idx < len(clips):
-            ordered.append((idx, clips[idx], (item.get("label") or "").strip()))
+            try:
+                shown_rank = int(item.get("rank", pos + 1))
+            except (TypeError, ValueError):
+                shown_rank = pos + 1
+            ordered.append((idx, clips[idx], (item.get("label") or "").strip(), shown_rank))
     if not ordered:
         ranked = sorted(range(len(clips)), key=lambda i: float(clips[i].get("virality_score") or 0), reverse=True)
-        ordered = [(i, clips[i], "") for i in ranked[:count]]
+        ordered = [(i, clips[i], "", pos + 1) for pos, i in enumerate(ranked[:count])]
     ordered = ordered[:count]
 
     # Temporal NMS: the analysis is asked not to overlap clips, but nothing enforced it, and two ranks
     # covering the same seconds would simply play that moment twice in the final video.
     kept, kept_spans = [], []
     for candidate in ordered:
-        _, candidate_clip, _ = candidate
+        _, candidate_clip, _, _ = candidate
         span = (float(candidate_clip.get("start_time") or 0.0), float(candidate_clip.get("end_time") or 0.0))
         if any(_temporal_iou(span, seen) > RANK_NMS_IOU for seen in kept_spans):
             logger.info(f"Rank NMS: dropped '{candidate_clip.get('title')}' — it overlaps a higher-ranked moment")
@@ -407,12 +413,15 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
 
     ranking_title = (rank_settings.ranking_title or "").strip() or "Ranking"
     clip_settings = settings.model_copy(deep=True)
-    clip_settings.title_position = "none"   # the ranking overlay carries the titles
+    # The ranking overlay owns the titles: the per-clip banner stays off so the only title on screen
+    # is the custom ranking headline. Clip titles still exist in the UI and feed the labels.
+    clip_settings.title_position = "none"
+    clip_settings.title_text = None
 
     rendered: List[str] = []
     segments: List[Dict[str, Any]] = []
     elapsed = 0.0
-    for rank_pos, (src_idx, clip, label) in enumerate(ordered):
+    for rank_pos, (src_idx, clip, label, shown_rank) in enumerate(ordered):
         c_start = float(clip.get("start_time") or 0.0)
         c_end = float(clip.get("end_time") or (c_start + (seconds or 5.0)))
         hook = clip.get("hook_time")
@@ -435,8 +444,9 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         entries = batch.get("clips") or []
         entry = entries[src_idx] if src_idx < len(entries) else None
         if entry:
-            entry["consumed"] = True          # baked into the ranking, not shipped on its own
-            entry["rank_position"] = rank_pos + 1
+            entry["consumed"] = True          # a part of the ranking, not an output of its own
+            entry["is_rank_part"] = True
+            entry["rank_position"] = shown_rank
         out_path = (entry or {}).get("output_path")
         if out_path and os.path.exists(out_path):
             rendered.append(out_path)
@@ -455,6 +465,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
                     label_text = f"{label_text} · {int(score)}"
             segments.append({
                 "label": label_text,
+                "rank": shown_rank,
                 "start": elapsed,
                 "end": elapsed + segment_length,
             })
@@ -474,8 +485,20 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     out_path = str(EXPORTS_DIR / out_name)
     merge_rank_highlight(rendered, ass_path, out_path)
 
+    # The ranked clips existed only to be joined; keeping them would leave six extra files next to a
+    # single deliverable, so they go and nothing can offer them for download afterwards.
+    for part in rendered:
+        try:
+            os.remove(part)
+        except Exception:
+            pass
+    for entry in batch.get("clips") or []:
+        if entry.get("is_rank_part"):
+            entry["output_path"] = None
+            entry["download_url"] = None
+
     tags: List[str] = []
-    for _, clip, _ in ordered:
+    for _, clip, _, _ in ordered:
         for tag in re.split(r"\s+", (clip.get("hashtag_suggestion") or "")):
             if tag.startswith("#") and tag.lower() not in [t.lower() for t in tags]:
                 tags.append(tag.lower())
