@@ -97,8 +97,10 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     return text.toLowerCase().replace(/(?:^|\s|\b)\w/g, c => c.toUpperCase());
   };
   const active = entries.length > 0 ? entries[Math.min(activeIdx, entries.length - 1)] : null;
-  // The newest rank sits at the bottom of the list, so the accumulated entries render top-first.
-  const shown = [...entries.slice(0, activeIdx + 1)].reverse();
+  // The fixed skeleton: every number shows from the start, dimmed; a rank's label fills in once its
+  // clip has played. Reversed so the winner sits on top of the list.
+  const playedRanks = new Set(entries.slice(0, activeIdx + 1).map(e => e.rank));
+  const skeleton = [...entries].reverse();
 
   const advance = (next?: number) => {
     if (!entries.length) return;
@@ -359,21 +361,26 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
         <div className="rank-live-overlay">
           <div className="rank-preview-title">{title.trim() || t.studio.rankingDefault}</div>
           <div className={`rank-preview-list rank-live-list pos-${position}`}>
-            {shown.map(e => (
-              <button
-                type="button"
-                key={`${e.rank}-${e.start}`}
-                className="rank-preview-item rank-live-jump"
-                onClick={() => jumpToRank(e.rank)}
-                title={`${t.studio.rankWord} ${e.rank}`}
-              >
-                <span className={`rank-preview-num ${e.rank <= 3 ? `medal-${e.rank}` : ''}`}>{e.rank}.</span>
-                <span className="rank-preview-label">
-                  {e.label}
-                  {showScores && typeof e.score === 'number' ? ` · ${Math.round(e.score)}` : ''}
-                </span>
-              </button>
-            ))}
+            {skeleton.map(e => {
+              const revealed = playedRanks.has(e.rank);
+              return (
+                <button
+                  type="button"
+                  key={`${e.rank}-${e.start}`}
+                  className="rank-preview-item rank-live-jump"
+                  onClick={() => jumpToRank(e.rank)}
+                  title={`${t.studio.rankWord} ${e.rank}`}
+                >
+                  <span className={`rank-preview-num ${e.rank <= 3 ? `medal-${e.rank}` : ''} ${revealed ? '' : 'dimmed'}`}>{e.rank}.</span>
+                  {revealed && (
+                    <span className="rank-preview-label">
+                      {e.label}
+                      {showScores && typeof e.score === 'number' ? ` · ${Math.round(e.score)}` : ''}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           {liveCaption && (
             <div className={`studio-live-caption rank-live-caption mode-${captionPosition}`}>

@@ -2019,6 +2019,19 @@ def build_rank_overlay_ass(
             rank_numbers.append(idx + 1)
     max_rank = max(rank_numbers) if rank_numbers else 1
 
+    # Fixed skeleton: every rank's number sits in its slot from the very first frame, dimmed, so the
+    # leaderboard structure is visible before anything plays. The label line drawn over it later
+    # replaces the dim number the moment its clip starts.
+    if show_numbers:
+        for r in range(1, max_rank + 1):
+            y_slot = (
+                anchor["y_start"] + (max_rank - r) * anchor["step"]
+            ) if anchor_is_bottom else (
+                anchor["y_start"] + (r - 1) * anchor["step"]
+            )
+            slot_text = f"{{\\an{anchor['an']}\\pos({anchor['x']},{y_slot})}}{{\\c&H60FFFFFF&}}{r}."
+            lines.append(f"Dialogue: 0,0:00:00.00,{_ass_timestamp(total)},RankSlot,,0,0,0,,{slot_text}")
+
     for idx, seg in enumerate(segments):
         label = str(seg.get("label") or f"Rank {idx + 1}").strip()
         start = float(seg.get("start", 0.0))
