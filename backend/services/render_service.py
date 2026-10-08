@@ -27,6 +27,12 @@ from backend.schemas.render import RenderBatchRequest, RenderSettingsModel
 RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
 
+# AUTO duration for a ranked clip: end on the first sentence boundary at least this far past the hook,
+# never longer than the max, and fall back to the nominal length when the transcript cannot say.
+RANK_AUTO_MIN_SECONDS = 4.0
+RANK_AUTO_MAX_SECONDS = 12.0
+RANK_AUTO_FALLBACK_SECONDS = 5.0
+
 
 async def render_single_batch_clip(
     batch_id: str,
@@ -340,7 +346,25 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         return
 
     count = max(2, min(10, int(rank_settings.rank_count or 6)))
-    seconds = max(2.0, min(30.0, float(rank_settings.clip_seconds or 5.0)))
+    # clip_seconds <= 0 means AUTO: follow the speaker to the end of the sentence instead of a fixed
+    # number of seconds, so a ranked moment is never cut mid-word.
+    auto_seconds = float(rank_settings.clip_seconds or 0.0) <= 0.0
+    seconds = max(2.0, min(30.0, float(rank_settings.clip_seconds or 5.0))) if not auto_seconds else 0.0
+    transcript_lines = transcript or []
+
+    def auto_window(start: float, clip_end: float) -> float:
+        """End of the first spoken line that finishes at least AUTO_MIN after the hook."""
+        for line in transcript_lines:
+            try:
+                line_end = float(line.get("end") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if line_end <= start:
+                continue
+            length = line_end - start
+            if length >= RANK_AUTO_MIN_SECONDS:
+                return min(clip_end, start + min(length, RANK_AUTO_MAX_SECONDS))
+        return min(clip_end, start + RANK_AUTO_FALLBACK_SECONDS)
 
     # Rank order: explicit overrides from the UI win, otherwise the best virality score ranks first.
     ordered = []
@@ -362,11 +386,14 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     elapsed = 0.0
     for rank_pos, (src_idx, clip, label) in enumerate(ordered):
         c_start = float(clip.get("start_time") or 0.0)
-        c_end = float(clip.get("end_time") or (c_start + seconds))
+        c_end = float(clip.get("end_time") or (c_start + (seconds or 5.0)))
         hook = clip.get("hook_time")
         begin = float(hook) if isinstance(hook, (int, float)) and c_start <= float(hook) <= max(c_start, c_end - 1.0) else c_start
-        begin = min(begin, max(c_start, c_end - seconds))
-        finish = max(min(c_end, begin + seconds), begin + 1.0)
+        if auto_seconds:
+            finish = auto_window(begin, c_end)
+        else:
+            begin = min(begin, max(c_start, c_end - seconds))
+            finish = max(min(c_end, begin + seconds), begin + 1.0)
 
         trimmed = dict(clip)
         trimmed["start_time"] = begin

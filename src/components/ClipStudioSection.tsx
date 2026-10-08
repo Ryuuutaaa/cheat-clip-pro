@@ -37,6 +37,8 @@ interface ClipStudioSectionProps {
   onDismissProgress?: () => void;
   onRetryClip?: (clipIndex?: number) => void;
   transcript?: TranscriptLine[];
+  /** Rank page only: shows the rank-highlight card and skips clip-only defaults. */
+  rankMode?: boolean;
 }
 
 function getFriendlyErrorMessage(rawMsg: string): string {
@@ -208,6 +210,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   onDismissProgress,
   onRetryClip,
   transcript,
+  rankMode = false,
 }) => {
   const { t } = useLanguage();
   // Directly reflect marked clips (supports selecting 0 clips)
@@ -225,6 +228,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankTitle, setRankTitle] = useState('');
   const [rankCount, setRankCount] = useState(6);
   const [rankSeconds, setRankSeconds] = useState(5);
+  // 'auto' follows the sentence boundary, '5' is the standing default, 'fixed' honours the number.
+  const [rankSecondsMode, setRankSecondsMode] = useState<'auto' | '5' | 'fixed'>('5');
   const [rankPosition, setRankPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('top_left');
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankLabels, setRankLabels] = useState<Record<number, string>>({});
@@ -1425,7 +1430,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         enabled: true,
         rankingTitle: rankTitle.trim(),
         rankCount,
-        clipSeconds: rankSeconds,
+        clipSeconds: rankSecondsMode === 'auto' ? 0 : rankSeconds,
         positionMode: rankPosition,
         ranks: rankOrder.slice(0, rankCount).map(i => ({ clip_index: i, label: (rankLabels[i] || '').trim() })),
       } : undefined,
@@ -3348,7 +3353,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             )}
           </div>
 
-          {/* 10. Rank Highlight — one ranked compilation instead of separate clips */}
+          {/* 10. Rank Highlight — rank page only, so it cannot collide with clip rendering */}
+          {rankMode && (
           <div className="studio-card-group">
             <div className="group-header">
               <span className="group-title">🏆 {t.studio.rankTitle}</span>
@@ -3458,19 +3464,37 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   />
                 </div>
 
+                <div className="pill-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.5rem' }}>
+                  {([['auto', t.studio.rankDurAuto], ['5', t.studio.rankDurFive], ['fixed', t.studio.rankDurCustom]] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`pill-btn ${rankSecondsMode === id ? 'active' : ''}`}
+                      style={{ fontSize: '0.72rem', padding: '0.22rem 0.6rem' }}
+                      onClick={() => {
+                        setRankSecondsMode(id);
+                        if (id === '5') setRankSeconds(5);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.9rem', alignItems: 'center', margin: '0.6rem 0' }}>
                   <label style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                     {t.studio.rankCountLabel}
                     <input
-                      type="number" min={2} max={10} value={rankCount}
-                      onChange={(e) => setRankCount(Math.max(2, Math.min(10, Number(e.target.value) || 6)))}
+                      type="number" min={2} max={6} value={rankCount}
+                      onChange={(e) => setRankCount(Math.max(2, Math.min(6, Number(e.target.value) || 6)))}
                       className="batch-title-input" style={{ width: '64px', padding: '0.25rem 0.5rem' }}
                     />
                   </label>
-                  <label style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <label style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem', opacity: rankSecondsMode === 'auto' ? 0.5 : 1 }}>
                     {t.studio.rankSecondsLabel}
                     <input
                       type="number" min={2} max={30} value={rankSeconds}
+                      disabled={rankSecondsMode === 'auto'}
                       onChange={(e) => setRankSeconds(Math.max(2, Math.min(30, Number(e.target.value) || 5)))}
                       className="batch-title-input" style={{ width: '64px', padding: '0.25rem 0.5rem' }}
                     />
@@ -3530,6 +3554,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               </>
             )}
           </div>
+          )}
 
           {/* 9. Selected Clips Checklist */}
           <div className="studio-card-group">

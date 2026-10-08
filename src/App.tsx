@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { HeatmapTimeline } from './components/HeatmapTimeline';
 import { LanguageSwitcher } from './components/LanguageSwitcher';
 import { ClipStudioSection } from './components/ClipStudioSection';
+import { RankClipPage } from './pages/RankClipPage';
 import { CookiesModal } from './components/CookiesModal';
 import { AiUsageModal } from './components/AiUsageModal';
 import { ClipTrimmerModal } from './components/ClipTrimmerModal';
@@ -26,6 +27,13 @@ declare global {
 export default function App() {
   const { t } = useLanguage();
   const [url, setUrl] = useState('');
+  // Two pages share the app shell and the Gemini key, but nothing else.
+  const [page, setPage] = useState<'clips' | 'rank'>(() =>
+    safeStorage.get('cheat_clip_page') === 'rank' ? 'rank' : 'clips'
+  );
+  useEffect(() => {
+    safeStorage.set('cheat_clip_page', page);
+  }, [page]);
   const [gdriveUrl, setGdriveUrl] = useState('');
   const [sourceMode, setSourceMode] = useState<'youtube' | 'gdrive' | 'upload'>('youtube');
   const [uploadedVideoFile, setUploadedVideoFile] = useState<File | null>(null);
@@ -2205,6 +2213,29 @@ Transcript:
           </div>
         </div>
         <div className="header-nav" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          {/* Page switcher: the rank feature lives on its own page so nothing collides */}
+          <div className="page-switch" style={{ display: 'flex', gap: '0.25rem', padding: '0.2rem', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            {([['clips', t.rankPage.tabClips], ['rank', t.rankPage.tabRank]] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPage(id)}
+                style={{
+                  padding: '0.35rem 0.8rem',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: page === id ? 'linear-gradient(135deg, #a855f7, #7c3aed)' : 'transparent',
+                  color: page === id ? '#fff' : 'var(--text-secondary)',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="cookie-header-btn"
@@ -2310,6 +2341,10 @@ Transcript:
         </div>
       </header>
 
+      {page === 'rank' ? (
+        <RankClipPage apiKey={apiKey} model={selectedModel} />
+      ) : (
+      <>
       {/* Main Form controls panel */}
       <section className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         <form onSubmit={handleAnalyze} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -4711,6 +4746,8 @@ Transcript:
           }}
           onRetryClip={handleRetryBatchClip}
         />
+      )}
+      </>
       )}
 
       {/* YouTube Cookies Modal */}
