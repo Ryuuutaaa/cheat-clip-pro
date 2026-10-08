@@ -987,6 +987,46 @@ h1, h2, h3, h4 {
   text-overflow: ellipsis;
 }
 
+/* Ranking overlay drawn over the live preview, so the right-hand panel shows the export frame */
+.rank-preview-inframe {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.rank-preview-inframe .rank-preview-title {
+  top: 5%;
+  font-size: 1.15rem;
+}
+
+.rank-preview-inframe .rank-preview-list {
+  left: 7%;
+  right: 7%;
+  top: 26%;
+  gap: 0.45rem;
+}
+
+.rank-preview-inframe .rank-preview-list.pos-bottom_left,
+.rank-preview-inframe .rank-preview-list.pos-bottom_right {
+  top: auto;
+  bottom: 10%;
+}
+
+.rank-preview-inframe .rank-preview-num {
+  font-size: 0.95rem;
+}
+
+.rank-preview-inframe .rank-preview-label {
+  font-size: 0.9rem;
+}
+
+/* Wide ratio frames are shorter, so the list starts a little lower and the headline shrinks */
+.rank-preview-inframe .rank-preview-list.pos-top_left,
+.rank-preview-inframe .rank-preview-list.pos-top_right {
+  top: 32%;
+}
+
 .copy-mini-btn.has-text {
   width: auto;
   padding: 2px 8px;

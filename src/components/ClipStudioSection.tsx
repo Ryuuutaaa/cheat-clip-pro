@@ -3657,6 +3657,28 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               className={`phone-wireframe-container real-preview-container ${isLandscape ? 'is-landscape' : ''}`}
               style={{ width: `${phoneWidth}px`, height: `${phoneHeight}px` }}
             >
+              {/* Rank page: the ranking overlay rides on top of the live clip preview, which is
+                  exactly what the export looks like — headline above, label list in the chosen
+                  corner. z-index keeps it above the video layers regardless of DOM order. */}
+              {rankMode && (
+                <div className="rank-preview-inframe">
+                  <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankTitlePlaceholder}</div>
+                  <div className={`rank-preview-list pos-${rankPosition}`}>
+                    {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
+                      const clip = selectedClips[clipIdx];
+                      if (!clip) return null;
+                      const label = (rankLabels[clipIdx] || '').trim() ||
+                        (clip.title_suggestion || clip.title || `Rank ${position + 1}`);
+                      return (
+                        <div key={`${clipIdx}-${position}`} className="rank-preview-item">
+                          <span className={`rank-preview-num ${position < 3 ? `medal-${position + 1}` : ''}`}>{position + 1}.</span>
+                          <span className="rank-preview-label">{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {/* Background Backdrop (Black or Ambient Blurred) */}
               <div
                 className="real-frame-bg-layer"
