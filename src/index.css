@@ -988,43 +988,114 @@ h1, h2, h3, h4 {
 }
 
 /* Ranking overlay drawn over the live preview, so the right-hand panel shows the export frame */
-.rank-preview-inframe {
+
+/* Rank page's own preview: the whole ranking played as one continuous sequence */
+.rank-live-preview {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rank-live-frame {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  margin: 0 auto;
+}
+
+.rank-live-frame.ratio-9-16 { aspect-ratio: 9 / 16; }
+.rank-live-frame.ratio-1-1 { aspect-ratio: 1 / 1; }
+.rank-live-frame.ratio-4-3 { aspect-ratio: 4 / 3; }
+.rank-live-frame.ratio-16-9_letterbox { aspect-ratio: 9 / 16; }
+.rank-live-frame.ratio-16-9_landscape { aspect-ratio: 16 / 9; }
+
+.rank-live-overlay {
   position: absolute;
   inset: 0;
-  z-index: 30;
   pointer-events: none;
+  z-index: 5;
 }
 
-.rank-preview-inframe .rank-preview-title {
+.rank-live-overlay .rank-preview-title {
+  position: absolute;
+  left: 8%;
+  right: 8%;
   top: 5%;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
 }
 
-.rank-preview-inframe .rank-preview-list {
+.rank-live-list {
+  position: absolute;
   left: 7%;
   right: 7%;
-  top: 26%;
-  gap: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
-.rank-preview-inframe .rank-preview-list.pos-bottom_left,
-.rank-preview-inframe .rank-preview-list.pos-bottom_right {
-  top: auto;
-  bottom: 10%;
+.rank-live-list.pos-bottom_left,
+.rank-live-list.pos-bottom_right {
+  bottom: 7%;
 }
 
-.rank-preview-inframe .rank-preview-num {
-  font-size: 0.95rem;
+.rank-live-list.pos-top_left,
+.rank-live-list.pos-top_right {
+  top: 24%;
 }
 
-.rank-preview-inframe .rank-preview-label {
+.rank-live-list .rank-preview-num { font-size: 0.95rem; }
+.rank-live-list .rank-preview-label { font-size: 0.9rem; }
+
+.rank-live-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.1rem 0.2rem;
+}
+
+.rank-live-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
   font-size: 0.9rem;
 }
 
-/* Wide ratio frames are shorter, so the list starts a little lower and the headline shrinks */
-.rank-preview-inframe .rank-preview-list.pos-top_left,
-.rank-preview-inframe .rank-preview-list.pos-top_right {
-  top: 32%;
+.rank-live-progress {
+  flex: 1;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-live-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.rank-live-bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, #ff5e3a, #ff2a5f);
+  transition: width 0.25s ease;
+}
+
+/* On the rank page the clip preview makes way for the rank sequence player */
+.has-rank-preview .preview-sticky-wrap > *:not(.preview-header-bar):not(.rank-live-preview) {
+  display: none;
+}
+
+.has-rank-preview .preview-indicator {
+  display: none;
 }
 
 .copy-mini-btn.has-text {

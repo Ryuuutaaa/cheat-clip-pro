@@ -3,6 +3,7 @@ import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
 import { buildTimedWords, buildWordChunks, getCaptionAt, CAPTION_HIGHLIGHT_CLASS } from '../utils/wordTiming';
 import { copyToClipboard } from '../utils/clipboard';
+import { RankLivePreview } from './RankLivePreview';
 import type {
   ViralClip,
   RenderSettings,
@@ -227,10 +228,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankEnabled, setRankEnabled] = useState(false);
   const [rankTitle, setRankTitle] = useState('');
   const [rankCount, setRankCount] = useState(6);
-  const [rankSeconds, setRankSeconds] = useState(5);
-  // 'auto' follows the sentence boundary, '5' is the standing default, 'fixed' honours the number.
-  const [rankSecondsMode, setRankSecondsMode] = useState<'auto' | '5' | 'fixed'>('5');
-  const [rankPosition, setRankPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('top_left');
+  const [rankSeconds, setRankSeconds] = useState(10);
+  // 'auto' follows the sentence boundary, '10' is the standing default, 'fixed' honours the number.
+  const [rankSecondsMode, setRankSecondsMode] = useState<'auto' | '10' | 'fixed'>('10');
+  const [rankPosition, setRankPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('bottom_left');
   const [rankShowScores, setRankShowScores] = useState<'off' | 'on'>('off');
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankLabels, setRankLabels] = useState<Record<number, string>>({});
@@ -402,7 +403,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     if (!rankMode || !rankPreviewClip) return null;
     const hook = Number(rankPreviewClip.hook_time ?? rankPreviewClip.start_time) || rankPreviewClip.start_time;
     const start = Math.max(rankPreviewClip.start_time, hook);
-    const seconds = rankSecondsMode === 'auto' ? 5 : rankSeconds;
+    const seconds = rankSecondsMode === 'auto' ? 10 : rankSeconds;
     return { start, end: Math.min(rankPreviewClip.end_time, start + seconds) };
   })();
 
@@ -413,15 +414,39 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     : (currentPreviewClip ? currentPreviewClip.end_time : 60);
   const clipDuration = Math.max(1, clipEnd - clipStart);
 
+  // The rank page plays the whole ranking as one sequence, so the right-hand preview needs the
+  // window of every rank, in playback order (countdown).
+  const rankLiveEntries = (() => {
+    if (!rankMode) return [];
+    const seconds = rankSecondsMode === 'auto' ? 10 : rankSeconds;
+    return rankOrder
+      .slice(0, rankCount)
+      .map((i, pos) => {
+        const clip = selectedClips[i];
+        const hook = Number(clip?.hook_time ?? clip?.start_time) || clip?.start_time || 0;
+        const start = Math.max(clip?.start_time || 0, hook);
+        return {
+          clip: clip as ViralClip,
+          label: (rankLabels[i] || '').trim() || clip?.title_suggestion || clip?.title || `Rank ${pos + 1}`,
+          rank: pos + 1,
+          start,
+          end: Math.min(clip?.end_time || start + seconds, start + seconds),
+        };
+      })
+      .filter(e => Boolean(e.clip))
+      .reverse();
+  })();
+
   // Rank page: the ranked clips are only parts of one deliverable, so the queue shows the single
   // ranking video being built instead of a list of clips that never ship on their own.
   const queueClips = (() => {
     const clips = batchProgress?.clips || [];
     if (!rankMode || !rankEnabled || clips.length === 0) return clips;
+    const doneStatus = (s: string) => s === 'completed' || s === 'skipped';
     const percent = Math.round(
-      clips.reduce((sum, c) => sum + (c.status === 'completed' ? 100 : Number(c.progress_percent) || 0), 0) / clips.length
+      clips.reduce((sum, c) => sum + (doneStatus(c.status) ? 100 : Number(c.progress_percent) || 0), 0) / clips.length
     );
-    const status = clips.every(c => c.status === 'completed')
+    const status = clips.every(c => doneStatus(c.status))
       ? 'completed'
       : clips.some(c => c.status === 'error')
       ? 'error'
@@ -445,8 +470,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const faceAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!videoId) return;
-    // A YouTube link that no longer matches the analysed video would make the server extract a
+    if (!videoId || rankMode) return;
     // frame from one video and cache it under another, so drop it and let the id speak.
     const ytMatch = (videoUrl || '').match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{11})/);
     const effectiveUrl = ytMatch && ytMatch[1] !== videoId ? '' : (videoUrl || '');
@@ -761,6 +785,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   };
 
   useEffect(() => {
+    if (rankMode) return;   // the rank page runs its own isolated preview player
     initPreviewPlayer();
     return () => {
       stopTracking();
@@ -775,6 +800,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   // When previewClipIndex changes, seek player to new clip start
   useEffect(() => {
+    if (rankMode) return;   // the rank sequence player owns timing here
     setCurrentTime(clipStart);
     if (previewPlayerRef.current && typeof previewPlayerRef.current.seekTo === 'function') {
       try {
@@ -3513,7 +3539,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 </div>
 
                 <div className="pill-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.5rem' }}>
-                  {([['auto', t.studio.rankDurAuto], ['5', t.studio.rankDurFive], ['fixed', t.studio.rankDurCustom]] as const).map(([id, label]) => (
+                  {([['auto', t.studio.rankDurAuto], ['10', t.studio.rankDurFive], ['fixed', t.studio.rankDurCustom]] as const).map(([id, label]) => (
                     <button
                       key={id}
                       type="button"
@@ -3521,7 +3547,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       style={{ fontSize: '0.72rem', padding: '0.22rem 0.6rem' }}
                       onClick={() => {
                         setRankSecondsMode(id);
-                        if (id === '5') setRankSeconds(5);
+                        if (id === '10') setRankSeconds(10);
                       }}
                     >
                       {label}
@@ -3541,9 +3567,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <label style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem', opacity: rankSecondsMode === 'auto' ? 0.5 : 1 }}>
                     {t.studio.rankSecondsLabel}
                     <input
-                      type="number" min={2} max={30} value={rankSeconds}
+                      type="number" min={10} max={30} value={rankSeconds}
                       disabled={rankSecondsMode === 'auto'}
-                      onChange={(e) => setRankSeconds(Math.max(2, Math.min(30, Number(e.target.value) || 5)))}
+                      onChange={(e) => setRankSeconds(Math.max(10, Math.min(30, Number(e.target.value) || 10)))}
                       className="batch-title-input" style={{ width: '64px', padding: '0.25rem 0.5rem' }}
                     />
                   </label>
@@ -3689,10 +3715,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         </div>
 
         {/* Right Column: Real Video Live Preview */}
-        <div className="studio-preview-pane">
+        <div className={`studio-preview-pane${rankMode ? ' has-rank-preview' : ''}`}>
           <div className="preview-sticky-wrap">
             <div className="preview-header-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.6rem' }}>
-              <span className="preview-title" style={{ fontWeight: 700, fontSize: '0.88rem' }}>{t.studio.livePreview}</span>
+              <span className="preview-title" style={{ fontWeight: 700, fontSize: '0.88rem' }}>
+                {rankMode ? t.studio.rankLivePreview : t.studio.livePreview}
+              </span>
               <span
                 className="preview-indicator"
                 style={{
@@ -3708,6 +3736,17 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 {!playerReady ? t.studio.previewLoading : isPlaying ? t.studio.previewPlaying : t.studio.previewReady}
               </span>
             </div>
+
+            {rankMode && (
+              <RankLivePreview
+                entries={rankLiveEntries}
+                title={rankTitle}
+                position={rankPosition}
+                aspectRatio={aspectRatio}
+                videoUrl={videoUrl}
+                videoId={videoId}
+              />
+            )}
 
             <div
               ref={phoneContainerRef}
@@ -4459,7 +4498,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     <span>
                       {rankMode && rankEnabled
                         ? t.batchProgress.completedMeta(
-                            batchProgress.clips.every(c => c.status === 'completed') ? 1 : 0,
+                            batchProgress.clips.every(c => c.status === 'completed' || c.status === 'skipped') ? 1 : 0,
                             1
                           )
                         : t.batchProgress.completedMeta(

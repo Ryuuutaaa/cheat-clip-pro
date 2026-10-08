@@ -34,9 +34,11 @@ RANK_NMS_IOU = 0.3
 
 # AUTO duration for a ranked clip: end on the first sentence boundary at least this far past the hook,
 # never longer than the max, and fall back to the nominal length when the transcript cannot say.
-RANK_AUTO_MIN_SECONDS = 4.0
-RANK_AUTO_MAX_SECONDS = 12.0
-RANK_AUTO_FALLBACK_SECONDS = 5.0
+# Ranked clips run 10-15 seconds; a little longer is fine, shorter is not.
+RANK_AUTO_MIN_SECONDS = 10.0
+RANK_AUTO_MAX_SECONDS = 15.0
+RANK_AUTO_FALLBACK_SECONDS = 10.0
+RANK_MIN_SECONDS = 10.0
 
 
 def _temporal_iou(a: tuple, b: tuple) -> float:
@@ -359,9 +361,9 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
 
     count = max(2, min(10, int(rank_settings.rank_count or 6)))
     # clip_seconds <= 0 means AUTO: follow the speaker to the end of the sentence instead of a fixed
-    # number of seconds, so a ranked moment is never cut mid-word.
+    # number of seconds, so a ranked moment is never cut mid-word. Ranked clips never run under 10 s.
     auto_seconds = float(rank_settings.clip_seconds or 0.0) <= 0.0
-    seconds = max(2.0, min(30.0, float(rank_settings.clip_seconds or 5.0))) if not auto_seconds else 0.0
+    seconds = max(RANK_MIN_SECONDS, min(30.0, float(rank_settings.clip_seconds or RANK_AUTO_FALLBACK_SECONDS))) if not auto_seconds else 0.0
     transcript_lines = transcript or []
 
     def auto_window(start: float, clip_end: float) -> float:
@@ -410,6 +412,18 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         ordered = kept
     elif kept:
         logger.warning("Rank NMS would leave fewer than two clips; keeping the requested order instead")
+
+    # With the individual pass skipped in rank mode, clips that did not make the ranking have no job
+    # left; mark them so the batch summary counts them as done instead of waiting on them forever.
+    ranked_indices = {src_idx for src_idx, _, _, _ in ordered}
+    for entry_idx, entry in enumerate(batch.get("clips") or []):
+        if entry.get("is_ranking") or entry_idx in ranked_indices:
+            continue
+        entry["status"] = "skipped"
+        entry["consumed"] = True
+        entry["is_rank_part"] = True
+        entry["output_path"] = None
+        entry["download_url"] = None
 
     ranking_title = (rank_settings.ranking_title or "").strip() or "Ranking"
     clip_settings = settings.model_copy(deep=True)
@@ -549,22 +563,28 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
         else:
             target_url = f"https://www.youtube.com/watch?v={target_url}"
 
-    for idx, clip in enumerate(clips):
-        batch["current_clip_index"] = idx
-        await render_single_batch_clip(
-            batch_id=batch_id,
-            idx=idx,
-            clip=clip,
-            settings=settings,
-            target_url=target_url,
-            transcript=request.transcript,
-            total_clips=len(clips)
-        )
-        # Fallback continuation: regardless of whether clip succeeded or failed, proceed to next clip!
-        batch["current_clip_index"] = idx + 1
-
     rank_settings = getattr(settings, "rank_highlight", None)
-    if rank_settings is not None and rank_settings.enabled and len(clips) >= 2:
+    rank_mode = rank_settings is not None and rank_settings.enabled and len(clips) >= 2
+
+    # Rank mode has one deliverable: the ranking pass renders each ranked clip itself, trimmed around
+    # its hook, so rendering the clips here as individual outputs would double the work and leave
+    # files the ranking never ships.
+    if not rank_mode:
+        for idx, clip in enumerate(clips):
+            batch["current_clip_index"] = idx
+            await render_single_batch_clip(
+                batch_id=batch_id,
+                idx=idx,
+                clip=clip,
+                settings=settings,
+                target_url=target_url,
+                transcript=request.transcript,
+                total_clips=len(clips)
+            )
+            # Fallback continuation: regardless of whether clip succeeded or failed, proceed to next clip!
+            batch["current_clip_index"] = idx + 1
+
+    if rank_mode:
         try:
             await _render_rank_highlight(
                 batch_id, clips, settings, rank_settings, target_url, request.transcript

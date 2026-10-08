@@ -9,7 +9,7 @@ class RankHighlightModel(BaseModel):
     enabled: bool = False
     ranking_title: Optional[str] = None          # headline; falls back to the clip titles
     rank_count: int = 6                          # how many ranks to include (2-10)
-    clip_seconds: float = 5.0                    # length of each ranked clip, taken from its hook
+    clip_seconds: float = 10.0                    # length of each ranked clip, taken from its hook
     position_mode: str = "top_left"              # top_left | top_right | bottom_left | bottom_right
     show_numbers: bool = True
     # Append the clip's virality score to its rank label ("3. Bald arch · 87")

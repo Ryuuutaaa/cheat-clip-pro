@@ -2009,22 +2009,36 @@ def build_rank_overlay_ass(
             f"{{\\an8\\pos({width // 2},{110})}}{ranking_title.strip().upper()}"
         )
 
+    anchor_is_bottom = "bottom" in (position_mode or "")
+    rank_numbers = []
+    for idx, seg in enumerate(segments):
+        try:
+            rank_numbers.append(int(seg.get("rank", idx + 1)))
+        except (TypeError, ValueError):
+            rank_numbers.append(idx + 1)
+    max_rank = max(rank_numbers) if rank_numbers else 1
+
     for idx, seg in enumerate(segments):
         label = str(seg.get("label") or f"Rank {idx + 1}").strip()
         start = float(seg.get("start", 0.0))
         end = float(seg.get("end", start + 5.0))
-        # One label at a time: an entry shows while its own clip plays and disappears when the next
-        # one starts, so the overlay follows the ranking instead of walling the frame with text.
         try:
             rank_number = int(seg.get("rank", idx + 1))
         except (TypeError, ValueError):
             rank_number = idx + 1
-        # Only one entry is ever visible, so they all share the anchor slot rather than stacking.
-        y = anchor["y_start"]
+        # The leaderboard builds from the bottom up: the rank that played first (the highest number)
+        # owns the lowest line and each newcomer appears above it, and every label stays on screen
+        # once it appears. Colour follows the rank, not the playback order.
+        if anchor_is_bottom:
+            # Bottom anchors step upward (negative step), so adding moves the entry higher on
+            # screen: rank N sits on the lowest line and the winner climbs to the top of the list.
+            y = anchor["y_start"] + (max_rank - rank_number) * anchor["step"]
+        else:
+            y = anchor["y_start"] + (rank_number - 1) * anchor["step"]
         colour = RANK_ACCENT_COLORS[rank_number - 1] if 1 <= rank_number <= len(RANK_ACCENT_COLORS) else "&H00ECECEC&"
         number = f"{rank_number}. " if show_numbers else ""
         text = f"{{\\an{anchor['an']}\\pos({anchor['x']},{y})}}{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
-        lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},RankItem,,0,0,0,,{text}")
+        lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")
 
     Path(output_ass_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
     logger.info(f"Rank overlay written: {output_ass_path} ({len(segments)} ranks, {position_mode})")
