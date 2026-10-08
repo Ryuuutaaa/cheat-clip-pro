@@ -415,7 +415,25 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const clipDuration = Math.max(1, clipEnd - clipStart);
 
   // The rank page plays the whole ranking as one sequence, so the right-hand preview needs the
-  // window of every rank, in playback order (countdown).
+  // window of every rank, in playback order (countdown). AUTO mirrors the renderer: end on the first
+  // sentence boundary at least 10s after the hook, at most 15s, with a 3s grace and a 10s fallback.
+  const autoWindowEnd = (start: number, clipEnd: number): number => {
+    let firstPast: number | null = null;
+    for (const line of transcript || []) {
+      const lineEnd = Number(line.end) || 0;
+      if (lineEnd <= start) continue;
+      const length = lineEnd - start;
+      if (length < 10) continue;
+      if (lineEnd <= start + 15) return Math.min(clipEnd, lineEnd);
+      if (firstPast === null) firstPast = lineEnd;
+    }
+    if (firstPast !== null) {
+      if (firstPast <= start + 18) return Math.min(clipEnd, firstPast);
+      return Math.min(clipEnd, start + 15);
+    }
+    return Math.min(clipEnd, start + 10);
+  };
+
   const rankLiveEntries = (() => {
     if (!rankMode) return [];
     const seconds = rankSecondsMode === 'auto' ? 10 : rankSeconds;
@@ -425,12 +443,16 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         const clip = selectedClips[i];
         const hook = Number(clip?.hook_time ?? clip?.start_time) || clip?.start_time || 0;
         const start = Math.max(clip?.start_time || 0, hook);
+        const clipEnd = clip?.end_time || start + seconds;
         return {
           clip: clip as ViralClip,
           label: (rankLabels[i] || '').trim() || clip?.title_suggestion || clip?.title || `Rank ${pos + 1}`,
           rank: pos + 1,
+          score: clip?.virality_score,
           start,
-          end: Math.min(clip?.end_time || start + seconds, start + seconds),
+          end: rankSecondsMode === 'auto'
+            ? autoWindowEnd(start, clipEnd)
+            : Math.min(clipEnd, start + seconds),
         };
       })
       .filter(e => Boolean(e.clip))
@@ -453,12 +475,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       : clips.some(c => c.status === 'rendering')
       ? 'rendering'
       : 'pending';
+    const rankingEntry = clips.find(c => c.is_ranking);
     return [{
       ...clips[0],
       title: rankTitle.trim() || t.studio.rankingDefault,
       base_title: rankTitle.trim() || 'ranking',
       status,
       progress_percent: percent,
+      download_url: rankingEntry?.download_url,
     } as typeof clips[number]];
   })();
 
@@ -3745,6 +3769,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 aspectRatio={aspectRatio}
                 videoUrl={videoUrl}
                 videoId={videoId}
+                showScores={rankShowScores === 'on'}
               />
             )}
 

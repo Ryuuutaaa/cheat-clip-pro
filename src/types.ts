@@ -157,6 +157,7 @@ export interface RenderClipStatus {
   download_url?: string;
   error_message?: string;
   error?: string;
+  is_ranking?: boolean;
 }
 
 export interface BatchRenderProgress {

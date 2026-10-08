@@ -470,6 +470,7 @@ export const id: Translations = {
     rankShowScores: "Tampilkan skor klip di samping peringkatnya",
     rankNoPreview: "Tidak ada pratinjau untuk sumber ini.",
     rankRestart: "Ulangi pratinjau ranking dari awal",
+    rankMute: "Suara hidup/mati",
     rankWord: "Peringkat",
     rankPosTopLeft: "↖ Kiri atas",
     rankPosTopRight: "↗ Kanan atas",
@@ -759,6 +760,7 @@ export const id: Translations = {
     savedShow: (count: number) => `📂 Analisis sebelumnya (${count})`,
     savedHide: "📂 Sembunyikan analisis sebelumnya",
     savedUse: "Pakai →",
+    savedDelete: "Hapus analisis ini",
     savedClips: (count: number) => `${count} klip`,
   },
   aiUsage: {

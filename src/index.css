@@ -1035,6 +1035,34 @@ h1, h2, h3, h4 {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  pointer-events: auto;
+}
+
+.rank-live-jump {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 0.15s ease;
+}
+
+.rank-live-jump:hover {
+  opacity: 0.8;
+}
+
+.rank-live-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  padding: 0 1.4rem;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 6;
 }
 
 .rank-live-list.pos-bottom_left,

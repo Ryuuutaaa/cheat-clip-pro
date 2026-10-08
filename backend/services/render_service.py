@@ -368,6 +368,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
 
     def auto_window(start: float, clip_end: float) -> float:
         """End of the first spoken line that finishes at least AUTO_MIN after the hook."""
+        first_past = None
         for line in transcript_lines:
             try:
                 line_end = float(line.get("end") or 0.0)
@@ -376,9 +377,32 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
             if line_end <= start:
                 continue
             length = line_end - start
-            if length >= RANK_AUTO_MIN_SECONDS:
-                return min(clip_end, start + min(length, RANK_AUTO_MAX_SECONDS))
+            if length < RANK_AUTO_MIN_SECONDS:
+                continue
+            if line_end <= start + RANK_AUTO_MAX_SECONDS:
+                return min(clip_end, line_end)
+            if first_past is None:
+                first_past = line_end
+        if first_past is not None:
+            # No clean boundary inside the window: take the first one past it with a small grace so
+            # the cut lands between words rather than mid-word, else cap at the maximum length.
+            if first_past <= start + RANK_AUTO_MAX_SECONDS + 3.0:
+                return min(clip_end, first_past)
+            return min(clip_end, start + RANK_AUTO_MAX_SECONDS)
         return min(clip_end, start + RANK_AUTO_FALLBACK_SECONDS)
+
+    def rank_window(clip: dict) -> tuple:
+        """The (start, end) the ranked clip will actually be cut to."""
+        c_start = float(clip.get("start_time") or 0.0)
+        c_end = float(clip.get("end_time") or (c_start + (seconds or 10.0)))
+        hook = clip.get("hook_time")
+        begin = float(hook) if isinstance(hook, (int, float)) and c_start <= float(hook) <= max(c_start, c_end - 1.0) else c_start
+        if auto_seconds:
+            finish = auto_window(begin, c_end)
+        else:
+            begin = min(begin, max(c_start, c_end - seconds))
+            finish = max(min(c_end, begin + seconds), begin + 1.0)
+        return begin, finish
 
     # Rank order: explicit overrides from the UI win, otherwise the best virality score ranks first.
     # Each entry carries the number shown on screen, so the video can play in countdown order while
@@ -398,13 +422,14 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     ordered = ordered[:count]
 
     # Temporal NMS: the analysis is asked not to overlap clips, but nothing enforced it, and two ranks
-    # covering the same seconds would simply play that moment twice in the final video.
+    # covering the same seconds would simply play that moment twice in the final video. The overlap
+    # must be measured on the windows actually cut, not on the clips that contain them.
     kept, kept_spans = [], []
     for candidate in ordered:
         _, candidate_clip, _, _ = candidate
-        span = (float(candidate_clip.get("start_time") or 0.0), float(candidate_clip.get("end_time") or 0.0))
+        span = rank_window(candidate_clip)
         if any(_temporal_iou(span, seen) > RANK_NMS_IOU for seen in kept_spans):
-            logger.info(f"Rank NMS: dropped '{candidate_clip.get('title')}' — it overlaps a higher-ranked moment")
+            logger.info(f"Rank NMS: dropped '{candidate_clip.get('title')}' — its window overlaps a higher-ranked moment")
             continue
         kept.append(candidate)
         kept_spans.append(span)
@@ -436,15 +461,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     segments: List[Dict[str, Any]] = []
     elapsed = 0.0
     for rank_pos, (src_idx, clip, label, shown_rank) in enumerate(ordered):
-        c_start = float(clip.get("start_time") or 0.0)
-        c_end = float(clip.get("end_time") or (c_start + (seconds or 5.0)))
-        hook = clip.get("hook_time")
-        begin = float(hook) if isinstance(hook, (int, float)) and c_start <= float(hook) <= max(c_start, c_end - 1.0) else c_start
-        if auto_seconds:
-            finish = auto_window(begin, c_end)
-        else:
-            begin = min(begin, max(c_start, c_end - seconds))
-            finish = max(min(c_end, begin + seconds), begin + 1.0)
+        begin, finish = rank_window(clip)
 
         trimmed = dict(clip)
         trimmed["start_time"] = begin
@@ -628,6 +645,13 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
             target_url = f"https://www.youtube.com/watch?v={request.video_id}"
         else:
             target_url = f"https://www.youtube.com/watch?v={target_url}"
+
+    rank_settings = getattr(settings, "rank_highlight", None)
+    if rank_settings is not None and rank_settings.enabled and len(clips) >= 2:
+        # A ranking has a single deliverable: retrying means rebuilding it through the same path,
+        # never rendering the clips as individual outputs.
+        await process_batch_rendering(batch_id, request)
+        return
 
     for idx in clip_indices:
         if 0 <= idx < len(clips):

@@ -8,6 +8,7 @@ export interface RankPreviewEntry {
   rank: number;   // number shown on screen (1 = the winner)
   start: number;  // window start (the hook)
   end: number;    // window end
+  score?: number; // virality score, shown next to the label when enabled
 }
 
 interface RankLivePreviewProps {
@@ -18,6 +19,7 @@ interface RankLivePreviewProps {
   aspectRatio: string;
   videoUrl: string;
   videoId: string;
+  showScores?: boolean;
   loop?: boolean;
 }
 
@@ -34,6 +36,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   aspectRatio,
   videoUrl,
   videoId,
+  showScores = false,
   loop = true,
 }) => {
   const { t } = useLanguage();
@@ -43,10 +46,14 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     seekTo?: (s: number, allowSeekAhead?: boolean) => void;
     playVideo?: () => void;
     pauseVideo?: () => void;
+    mute?: () => void;
+    unMute?: () => void;
     destroy?: () => void;
   } | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
+  const [muted, setMuted] = useState(true);
+  const [playerError, setPlayerError] = useState(false);
 
   const isDirect = Boolean(
     videoUrl && (
@@ -71,7 +78,8 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     }
   };
 
-  // Direct <video>: seek to the active rank's window whenever it changes.
+  // Direct <video>: seek whenever the active rank changes (but never when merely pausing, or a
+  // pause would throw the window back to its start).
   useEffect(() => {
     const v = directRef.current;
     if (!isDirect || !v || !active) return;
@@ -80,12 +88,33 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     } catch {
       // not seekable yet; the browser plays from wherever it can
     }
-    if (playing) {
-      v.play().catch(() => {});
-    } else {
-      v.pause();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirect, activeIdx, active?.start]);
+
+  // Play/pause follows the toggle alone.
+  useEffect(() => {
+    const v = directRef.current;
+    if (!isDirect || !v) return;
+    if (playing) v.play().catch(() => {});
+    else v.pause();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirect, playing]);
+
+  // Mute follows the toggle.
+  useEffect(() => {
+    const v = directRef.current;
+    if (!isDirect || !v) return;
+    v.muted = muted;
+    if (isDirect && ytRef.current) {
+      try {
+        if (muted) ytRef.current.mute?.();
+        else ytRef.current.unMute?.();
+      } catch {
+        // ignore
+      }
     }
-  }, [isDirect, activeIdx, active?.start, playing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [muted, isDirect]);
 
   const handleTimeUpdate = () => {
     const v = directRef.current;
@@ -106,6 +135,8 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
         seekTo?: (s: number, allowSeekAhead?: boolean) => void;
         playVideo?: () => void;
         pauseVideo?: () => void;
+        mute?: () => void;
+        unMute?: () => void;
         destroy?: () => void;
       };
       ytRef.current = new Player('rank-live-yt-slot', {
@@ -121,6 +152,11 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
               // autoplay policy can block; the user can press play
             }
           },
+          onStateChange: (e: { data: number }) => {
+            if (e.data === 1) setPlaying(true);
+            else if (e.data === 2) setPlaying(false);
+          },
+          onError: () => setPlayerError(true),
         },
       });
     };
@@ -150,6 +186,24 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirect, videoId]);
 
+  // When the sequence advances, the YouTube player must jump to the new rank's window.
+  useEffect(() => {
+    if (isDirect || !active) return;
+    try {
+      ytRef.current?.seekTo?.(active.start, true);
+    } catch {
+      // player not ready yet
+    }
+    if (playing) {
+      try {
+        ytRef.current?.playVideo?.();
+      } catch {
+        // ignore
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirect, activeIdx, active?.start]);
+
   // Poll the YouTube player for the window boundary.
   useEffect(() => {
     if (isDirect || !active) return;
@@ -178,6 +232,28 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
       }
     }
     setPlaying(v => !v);
+  };
+
+  const toggleMute = () => {
+    if (isDirect && directRef.current) {
+      directRef.current.muted = !muted;
+    } else {
+      try {
+        if (muted) ytRef.current?.unMute?.();
+        else ytRef.current?.mute?.();
+      } catch {
+        // ignore
+      }
+    }
+    setMuted(v => !v);
+  };
+
+  const jumpToRank = (rank: number) => {
+    const idx = entries.findIndex(e => e.rank === rank);
+    if (idx >= 0) {
+      setActiveIdx(idx);
+      setPlaying(true);
+    }
   };
 
   const ratioClass = `ratio-${(aspectRatio || '9:16').replace(':', '-')}`;
@@ -211,7 +287,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
           <video
             ref={directRef}
             src={videoUrl || (videoId ? `/api/video/${videoId}` : '')}
-            muted
+            muted={muted}
             playsInline
             onTimeUpdate={handleTimeUpdate}
             style={{
@@ -231,14 +307,31 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
           </div>
         )}
 
+        {entries.length === 0 && (
+          <div className="rank-live-empty">{t.studio.rankNeedsTwo}</div>
+        )}
+
+        {playerError && !isDirect && (
+          <div className="rank-live-empty">{t.studio.rankNoPreview}</div>
+        )}
+
         <div className="rank-live-overlay">
           <div className="rank-preview-title">{title.trim() || t.studio.rankingDefault}</div>
           <div className={`rank-preview-list rank-live-list pos-${position}`}>
             {shown.map(e => (
-              <div key={`${e.rank}-${e.start}`} className="rank-preview-item">
+              <button
+                type="button"
+                key={`${e.rank}-${e.start}`}
+                className="rank-preview-item rank-live-jump"
+                onClick={() => jumpToRank(e.rank)}
+                title={`${t.studio.rankWord} ${e.rank}`}
+              >
                 <span className={`rank-preview-num ${e.rank <= 3 ? `medal-${e.rank}` : ''}`}>{e.rank}.</span>
-                <span className="rank-preview-label">{e.label}</span>
-              </div>
+                <span className="rank-preview-label">
+                  {e.label}
+                  {showScores && typeof e.score === 'number' ? ` · ${Math.round(e.score)}` : ''}
+                </span>
+              </button>
             ))}
           </div>
         </div>
@@ -247,6 +340,9 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
       <div className="rank-live-controls">
         <button type="button" className="rank-live-btn" onClick={togglePlay} aria-label={t.studio.previewPlaying}>
           {playing ? '⏸' : '▶'}
+        </button>
+        <button type="button" className="rank-live-btn" onClick={toggleMute} aria-label={t.studio.rankMute}>
+          {muted ? '🔇' : '🔊'}
         </button>
         <span className="rank-live-progress">
           {active ? `${t.studio.rankWord} ${active.rank}/${entries.length} · ${active.label}` : ''}

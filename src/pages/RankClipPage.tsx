@@ -66,10 +66,19 @@ function readSavedAnalyses(): SavedAnalysis[] {
       // a corrupt entry should never take the page down
     }
   }
-  return entries.sort((a, b) => (b.analyzedAt || '').localeCompare(a.analyzedAt || '')).slice(0, 24);
+  const seen = new Set<string>();
+  return entries
+    .filter(entry => {
+      // one entry per video: keep the most recent analysis
+      const keyId = entry.videoId;
+      if (seen.has(keyId)) return false;
+      seen.add(keyId);
+      return true;
+    })
+    .sort((a, b) => (b.analyzedAt || '').localeCompare(a.analyzedAt || '')).slice(0, 24);
 }
 
-const RANK_CACHE_SUFFIX = '15s_rank';
+const RANK_CACHE_SUFFIX = '10s_rank';
 
 /** Saves this page's analysis under the shared key so the clip page can reuse it too. */
 function persistAnalysis(data: AnalyzeResponse, sourceUrl: string) {
@@ -125,6 +134,18 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
     setSavedOpen(false);
     // Jump straight to the setup: the analysis is already done, nothing to re-run.
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  };
+
+  const deleteSavedAnalysis = (entry: SavedAnalysis) => {
+    try {
+      localStorage.removeItem(entry.key);
+      const rest = entry.key.substring('cheat_clip_cache_'.length);
+      const suffix = rest.substring(entry.videoId.length + 1);
+      localStorage.removeItem(`cheat_clip_ts_${entry.videoId}_${suffix}`);
+    } catch {
+      // storage unavailable; the entry just stays
+    }
+    setSaved(readSavedAnalyses());
   };
 
   const analysisAbort = useRef<AbortController | null>(null);
@@ -393,6 +414,21 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
                       </span>
                     </span>
                     <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#c084fc', flexShrink: 0 }}>{t.rankPage.savedUse}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSavedAnalysis(entry);
+                      }}
+                      title={t.rankPage.savedDelete}
+                      aria-label={t.rankPage.savedDelete}
+                      style={{
+                        background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer',
+                        fontSize: '0.85rem', padding: '0.1rem 0.3rem', flexShrink: 0,
+                      }}
+                    >
+                      ✕
+                    </button>
                   </button>
                 ))}
               </div>

@@ -468,6 +468,7 @@ export const en = {
     rankShowScores: "Show each clip's score next to its rank",
     rankNoPreview: "No preview available for this source.",
     rankRestart: "Restart the ranking preview from the top",
+    rankMute: "Mute/unmute",
     rankWord: "Rank",
     rankPosTopLeft: "↖ Top left",
     rankPosTopRight: "↗ Top right",
@@ -757,6 +758,7 @@ export const en = {
     savedShow: (count: number) => `📂 Previously analyzed (${count})`,
     savedHide: "📂 Hide previously analyzed",
     savedUse: "Use →",
+    savedDelete: "Delete this analysis",
     savedClips: (count: number) => `${count} clips`,
   },
   aiUsage: {
