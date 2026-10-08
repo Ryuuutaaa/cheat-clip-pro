@@ -236,6 +236,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankSecondsMode, setRankSecondsMode] = useState<'auto' | '10' | 'fixed'>('10');
   const [rankPosition, setRankPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('bottom_left');
   const [rankShowScores, setRankShowScores] = useState<'off' | 'on'>('off');
+  const [rankTitleBusy, setRankTitleBusy] = useState(false);
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankAutoOrder, setRankAutoOrder] = useState(false);
   const [rankOrderBusy, setRankOrderBusy] = useState(false);
@@ -546,6 +547,28 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     );
     setRankLabels({});
   }, [selectedClipsKey]);
+
+  const handleSuggestRankTitle = async () => {
+    const titles = selectedClips
+      .slice(0, 8)
+      .map(c => c.title_suggestion || c.title || '')
+      .filter(Boolean);
+    if (!titles.length) return;
+    setRankTitleBusy(true);
+    try {
+      const resp = await resilientFetch('/api/rank-title-suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clip_titles: titles }),
+      });
+      const data = await resp.json();
+      if (data.title) setRankTitle(data.title);
+    } catch {
+      // keep the current title when the suggestion cannot be fetched
+    } finally {
+      setRankTitleBusy(false);
+    }
+  };
 
   const moveRank = (position: number, delta: number) => {
     setRankAutoOrder(false);   // a manual move takes over from the smart order
@@ -3567,6 +3590,16 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     value={rankTitle}
                     onChange={(e) => setRankTitle(e.target.value)}
                   />
+                  <button
+                    type="button"
+                    className="btn-quiet"
+                    onClick={handleSuggestRankTitle}
+                    disabled={rankTitleBusy || selectedClips.length === 0}
+                    style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem', flexShrink: 0 }}
+                    title={t.studio.rankTitleSuggest}
+                  >
+                    {rankTitleBusy ? '…' : '✨'} {t.studio.rankTitleSuggest}
+                  </button>
                 </div>
 
                 <div className="pill-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.5rem' }}>
@@ -3835,6 +3868,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 videoUrl={videoUrl}
                 videoId={videoId}
                 showScores={rankShowScores === 'on'}
+                captionStyle={captionStyle}
+                captionPosition={subtitlePositionMode}
+                captionFont={captionFont}
+                captionFontSize={fontSize}
+                textCase={textCase}
+                transcript={transcript}
               />
             )}
 

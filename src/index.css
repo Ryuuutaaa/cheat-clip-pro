@@ -1087,6 +1087,10 @@ h1, h2, h3, h4 {
   opacity: 0.8;
 }
 
+.rank-live-caption {
+  z-index: 7;
+}
+
 .rank-live-empty {
   position: absolute;
   inset: 0;

@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../locales';
-import type { ViralClip } from '../types';
+import type { TranscriptLine, ViralClip } from '../types';
+import { buildTimedWords, buildWordChunks, getCaptionAt, CAPTION_HIGHLIGHT_CLASS } from '../utils/wordTiming';
 
 export interface RankPreviewEntry {
   clip: ViralClip;
@@ -21,6 +22,13 @@ interface RankLivePreviewProps {
   videoId: string;
   showScores?: boolean;
   loop?: boolean;
+  /** Live captions mirroring the export's subtitle burn. */
+  captionStyle?: string;
+  captionPosition?: string;
+  captionFont?: string;
+  captionFontSize?: string;
+  textCase?: string;
+  transcript?: TranscriptLine[];
 }
 
 /**
@@ -38,6 +46,12 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   videoId,
   showScores = false,
   loop = true,
+  captionStyle = 'none',
+  captionPosition = 'center',
+  captionFont = 'Montserrat, sans-serif',
+  captionFontSize = 'medium',
+  textCase = 'capitalize',
+  transcript = [],
 }) => {
   const { t } = useLanguage();
   const directRef = useRef<HTMLVideoElement | null>(null);
@@ -54,6 +68,20 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   const [playing, setPlaying] = useState(true);
   const [muted, setMuted] = useState(true);
   const [playerError, setPlayerError] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  const timedWords = useMemo(() => buildTimedWords(transcript), [transcript]);
+  const wordChunks = useMemo(() => buildWordChunks(timedWords), [timedWords]);
+  const liveCaption = useMemo(
+    () => (captionStyle === 'none' ? null : getCaptionAt(wordChunks, currentTime)),
+    [wordChunks, currentTime, captionStyle]
+  );
+  const captionPx = (captionFontSize === 'small' ? 15 : captionFontSize === 'big' ? 23 : 18.5);
+  const applyCase = (text: string): string => {
+    if (textCase === 'uppercase') return text.toUpperCase();
+    if (textCase === 'lowercase') return text.toLowerCase();
+    return text.toLowerCase().replace(/(?:^|\s|\b)\w/g, c => c.toUpperCase());
+  };
 
   const isDirect = Boolean(
     videoUrl && (
@@ -118,8 +146,9 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
 
   const handleTimeUpdate = () => {
     const v = directRef.current;
-    if (!v || !active || !playing) return;
-    if (v.currentTime >= active.end - 0.05) advance();
+    if (!v || !active) return;
+    setCurrentTime(v.currentTime);
+    if (playing && v.currentTime >= active.end - 0.05) advance();
   };
 
   // YouTube: build an isolated player so the clip page's player is never disturbed.
@@ -210,7 +239,10 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     const iv = window.setInterval(() => {
       try {
         const t = ytRef.current?.getCurrentTime?.();
-        if (typeof t === 'number' && t >= active.end - 0.05) advance();
+        if (typeof t === 'number') {
+          setCurrentTime(t);
+          if (t >= active.end - 0.05) advance();
+        }
       } catch {
         // player not ready yet
       }
@@ -318,6 +350,28 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
               </button>
             ))}
           </div>
+          {liveCaption && (
+            <div className={`studio-live-caption rank-live-caption mode-${captionPosition}`}>
+              <span
+                className="studio-live-caption-text"
+                style={{
+                  fontFamily: captionFont,
+                  fontSize: `${captionPx}px`,
+                  fontWeight: 800,
+                  textShadow: '0 0 2px #000, 0 1px 3px rgba(0,0,0,0.95)',
+                }}
+              >
+                {liveCaption.words.map((w, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 ? ' ' : ''}
+                    <span className={i === liveCaption.activeIndex ? (CAPTION_HIGHLIGHT_CLASS[captionStyle] || 'pop-yellow') : undefined}>
+                      {applyCase(w)}
+                    </span>
+                  </React.Fragment>
+                ))}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

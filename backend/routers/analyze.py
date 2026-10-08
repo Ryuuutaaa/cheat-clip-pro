@@ -3,9 +3,9 @@ import json
 import logging
 import os
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from google import genai
 from google.genai import types
@@ -1397,3 +1397,28 @@ async def analyze_video(request: AnalyzeRequest, http_request: Request):
             "X-Accel-Buffering": "no",
         }
     )
+
+
+@router.post("/api/rank-title-suggest")
+async def suggest_rank_title(request: Dict = Body(...)):
+    """Suggests one SEO-friendly title for the whole ranking from its clip titles."""
+    titles = [str(t).strip() for t in (request.get("clip_titles") or []) if str(t).strip()][:12]
+    if not titles:
+        raise HTTPException(status_code=400, detail="No clip titles provided")
+    gemini_key = (request.get("api_key") or os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not gemini_key:
+        raise HTTPException(status_code=400, detail="Gemini API key is required for title suggestions")
+    prompt = (
+        "You write titles for ranked compilation videos (YouTube Shorts). "
+        "Given the ranked clip titles below, write ONE punchy, SEO-friendly title: "
+        "max 60 characters, keyword first, no ALL CAPS, no quotes, no hashtags, "
+        "in the same language as the clip titles. Return only the title.\n\n"
+        "Ranked clip titles:\n" + "\n".join(f"- {t}" for t in titles)
+    )
+    try:
+        client = genai.Client(api_key=gemini_key)
+        resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+        title = (resp.text or "").strip().strip('"').split("\n")[0][:80].strip()
+        return {"title": title or titles[0]}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Title suggestion failed: {str(e)[:200]}")

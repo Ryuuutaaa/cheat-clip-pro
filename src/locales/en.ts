@@ -458,6 +458,7 @@ export const en = {
     rankEnableDesc: "combines the selected clips into ONE video, ranked with a stacked label list.",
     rankNeedsTwo: "select at least 2 clips to build a ranking.",
     rankTitlePlaceholder: "Headline for the video, e.g. Ranking Best Moments",
+    rankTitleSuggest: "AI suggest title",
     rankingDefault: "Ranking",
     rankCountLabel: "Ranks:",
     rankSecondsLabel: "Seconds each:",
