@@ -469,6 +469,7 @@ export const en = {
     rankLabelPlaceholder: "Rank label",
     rankPreviewLabel: "Live framing preview",
     rankPreviewHint: "This is where the headline and the rank list land on the final video. The list reveals one entry per clip as it plays, and the first three places get medal colours.",
+    rankPreviewPick: "Preview which rank's clip:",
     rankMoveUp: "Move up",
     rankMoveDown: "Move down",
     batchClipTitlesActivePreview: "Active Preview",

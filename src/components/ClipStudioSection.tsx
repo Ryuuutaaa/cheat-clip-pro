@@ -453,6 +453,39 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     });
   };
 
+  // Which rank's clip is playing in the rank preview, and how to play it for this source type.
+  const [rankPreviewIdx, setRankPreviewIdx] = useState(0);
+  const rankPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const rankPreviewIsDirect = Boolean(
+    videoUrl && (videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') ||
+      videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') ||
+      videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_'))
+  );
+  const rankPreviewClipIndex = rankOrder[rankPreviewIdx];
+  const rankPreviewClip = rankPreviewClipIndex !== undefined ? selectedClips[rankPreviewClipIndex] : null;
+  const rankPreviewStart = rankPreviewClip
+    ? Number(rankPreviewClip.hook_time ?? rankPreviewClip.start_time) || 0
+    : 0;
+  const rankPreviewVideoSrc = rankPreviewIsDirect ? (videoUrl || (videoId ? `/api/video/${videoId}` : '')) : '';
+  const rankPreviewEmbed = !rankPreviewIsDirect && videoId
+    ? `https://www.youtube.com/embed/${videoId}?start=${Math.floor(rankPreviewStart)}` +
+      `&end=${Math.floor(rankPreviewStart + rankSeconds)}&mute=1&controls=0&rel=0&playsinline=1` +
+      `&modestbranding=1&loop=1&playlist=${videoId}`
+    : '';
+
+  // Keep the playing clip lined up with the rank being previewed.
+  useEffect(() => {
+    const vid = rankPreviewVideoRef.current;
+    if (vid && rankPreviewVideoSrc) {
+      try {
+        vid.currentTime = rankPreviewStart;
+      } catch {
+        // seeking before metadata is ready is harmless; onLoadedMetadata repeats it
+      }
+    }
+  }, [rankPreviewStart, rankPreviewVideoSrc, rankPreviewIdx]);
+
   const analyzeSpeakerNow = async () => {
     if (isAnalyzingSpeaker || !videoId) return;
     setIsAnalyzingSpeaker(true);
@@ -3338,14 +3371,34 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             {rankEnabled && (
               <>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', marginBottom: '0.9rem', flexWrap: 'wrap' }}>
-                  {/* Live mock of the final frame: the same layout the overlay will burn in */}
-                  <div className="rank-preview-frame">
-                    <img
-                      className="rank-preview-bg"
-                      alt=""
-                      src={`/api/clip-frame?video_id=${encodeURIComponent(videoId)}&timestamp=${clipStart}`}
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                    />
+                  {/* Live mock of the final frame: the real clip playing under the overlay layout */}
+                  <div className={`rank-preview-frame ratio-${aspectRatio.replace(':', '-')}`}>
+                    {rankPreviewIsDirect && rankPreviewVideoSrc ? (
+                      <video
+                        ref={rankPreviewVideoRef}
+                        className="rank-preview-bg"
+                        src={rankPreviewVideoSrc}
+                        muted
+                        autoPlay
+                        loop
+                        playsInline
+                        preload="metadata"
+                        onLoadedMetadata={(e) => {
+                          try {
+                            e.currentTarget.currentTime = rankPreviewStart;
+                          } catch {
+                            // ignore: some browsers refuse a seek before the first frame
+                          }
+                        }}
+                      />
+                    ) : rankPreviewEmbed ? (
+                      <iframe
+                        className="rank-preview-bg"
+                        src={rankPreviewEmbed}
+                        title="rank-preview"
+                        allow="autoplay; encrypted-media; picture-in-picture"
+                      />
+                    ) : null}
                     <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankTitlePlaceholder}</div>
                     <div className={`rank-preview-list pos-${rankPosition}`}>
                       {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
@@ -3372,6 +3425,26 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
                       {Math.min(rankCount, rankOrder.length)} × {rankSeconds}s = {(Math.min(rankCount, rankOrder.length) * rankSeconds).toFixed(0)}s
                     </div>
+                    {Math.min(rankCount, rankOrder.length) > 1 && (
+                      <>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0.6rem 0 0.3rem' }}>
+                          {t.studio.rankPreviewPick}
+                        </div>
+                        <div className="pill-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                          {rankOrder.slice(0, rankCount).map((_, position) => (
+                            <button
+                              key={position}
+                              type="button"
+                              className={`pill-btn ${rankPreviewIdx === position ? 'active' : ''}`}
+                              style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', minWidth: '30px' }}
+                              onClick={() => setRankPreviewIdx(position)}
+                            >
+                              {position + 1}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
