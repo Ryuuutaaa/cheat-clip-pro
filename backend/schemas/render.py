@@ -12,6 +12,8 @@ class RankHighlightModel(BaseModel):
     clip_seconds: float = 5.0                    # length of each ranked clip, taken from its hook
     position_mode: str = "top_left"              # top_left | top_right | bottom_left | bottom_right
     show_numbers: bool = True
+    # Append the clip's virality score to its rank label ("3. Bald arch · 87")
+    show_scores: bool = False
     # Optional per-rank overrides from the UI: [{"clip_index": int, "label": str}], in rank order.
     ranks: Optional[List[Dict[str, Any]]] = None
 

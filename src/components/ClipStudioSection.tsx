@@ -231,6 +231,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   // 'auto' follows the sentence boundary, '5' is the standing default, 'fixed' honours the number.
   const [rankSecondsMode, setRankSecondsMode] = useState<'auto' | '5' | 'fixed'>('5');
   const [rankPosition, setRankPosition] = useState<'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'>('top_left');
+  const [rankShowScores, setRankShowScores] = useState<'off' | 'on'>('off');
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankLabels, setRankLabels] = useState<Record<number, string>>({});
 
@@ -1432,6 +1433,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         rankCount,
         clipSeconds: rankSecondsMode === 'auto' ? 0 : rankSeconds,
         positionMode: rankPosition,
+        showScores: rankShowScores !== 'off',
         ranks: rankOrder.slice(0, rankCount).map(i => ({ clip_index: i, label: (rankLabels[i] || '').trim() })),
       } : undefined,
       // Background Music
@@ -3520,6 +3522,15 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     </button>
                   ))}
                 </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.76rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={rankShowScores === 'on'}
+                    onChange={e => setRankShowScores(e.target.checked ? 'on' : 'off')}
+                  />
+                  {t.studio.rankShowScores}
+                </label>
 
                 <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>{t.studio.rankLabelsLabel}</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '260px', overflowY: 'auto' }}>

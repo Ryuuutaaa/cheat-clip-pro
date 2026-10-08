@@ -464,6 +464,7 @@ export const en = {
     rankDurFive: "5s",
     rankDurCustom: "Custom",
     rankPositionLabel: "Label position:",
+    rankShowScores: "Show each clip's score next to its rank",
     rankPosTopLeft: "↖ Top left",
     rankPosTopRight: "↗ Top right",
     rankPosBottomLeft: "↙ Bottom left",

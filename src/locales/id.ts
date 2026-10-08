@@ -466,6 +466,7 @@ export const id: Translations = {
     rankDurFive: "5 dtk",
     rankDurCustom: "Kustom",
     rankPositionLabel: "Posisi label:",
+    rankShowScores: "Tampilkan skor klip di samping peringkatnya",
     rankPosTopLeft: "↖ Kiri atas",
     rankPosTopRight: "↗ Kanan atas",
     rankPosBottomLeft: "↙ Kiri bawah",

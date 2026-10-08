@@ -13,6 +13,7 @@ from backend.config import (
     build_rank_overlay_ass,
     download_clip_segment,
     generate_ass_file,
+    get_video_file_metadata,
     has_emoji,
     is_valid_mp4,
     is_within_media_dirs,
@@ -27,11 +28,22 @@ from backend.schemas.render import RenderBatchRequest, RenderSettingsModel
 RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
 
+# Two ranked moments that cover the same stretch of video would play it twice; anything overlapping
+# an accepted rank by more than this is dropped, the usual threshold for temporal NMS.
+RANK_NMS_IOU = 0.3
+
 # AUTO duration for a ranked clip: end on the first sentence boundary at least this far past the hook,
 # never longer than the max, and fall back to the nominal length when the transcript cannot say.
 RANK_AUTO_MIN_SECONDS = 4.0
 RANK_AUTO_MAX_SECONDS = 12.0
 RANK_AUTO_FALLBACK_SECONDS = 5.0
+
+
+def _temporal_iou(a: tuple, b: tuple) -> float:
+    """Intersection over union of two (start, end) spans."""
+    inter = max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
+    union = max(a[1], b[1]) - min(a[0], b[0])
+    return inter / union if union > 0 else 0.0
 
 
 async def render_single_batch_clip(
@@ -377,6 +389,22 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         ordered = [(i, clips[i], "") for i in ranked[:count]]
     ordered = ordered[:count]
 
+    # Temporal NMS: the analysis is asked not to overlap clips, but nothing enforced it, and two ranks
+    # covering the same seconds would simply play that moment twice in the final video.
+    kept, kept_spans = [], []
+    for candidate in ordered:
+        _, candidate_clip, _ = candidate
+        span = (float(candidate_clip.get("start_time") or 0.0), float(candidate_clip.get("end_time") or 0.0))
+        if any(_temporal_iou(span, seen) > RANK_NMS_IOU for seen in kept_spans):
+            logger.info(f"Rank NMS: dropped '{candidate_clip.get('title')}' — it overlaps a higher-ranked moment")
+            continue
+        kept.append(candidate)
+        kept_spans.append(span)
+    if len(kept) >= 2:
+        ordered = kept
+    elif kept:
+        logger.warning("Rank NMS would leave fewer than two clips; keeping the requested order instead")
+
     ranking_title = (rank_settings.ranking_title or "").strip() or "Ranking"
     clip_settings = settings.model_copy(deep=True)
     clip_settings.title_position = "none"   # the ranking overlay carries the titles
@@ -412,12 +440,25 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         out_path = (entry or {}).get("output_path")
         if out_path and os.path.exists(out_path):
             rendered.append(out_path)
+            # Use the duration the renderer actually produced: planned lengths drift by a few frames
+            # and the overlay would slowly fall out of step with the clips.
+            actual = None
+            try:
+                actual = get_video_file_metadata(out_path).get("duration")
+            except Exception:
+                actual = None
+            segment_length = float(actual) if actual and actual > 0.5 else (finish - begin)
+            label_text = label or (clip.get("title_suggestion") or clip.get("title") or f"Rank {rank_pos + 1}")
+            if getattr(rank_settings, "show_scores", False):
+                score = clip.get("virality_score")
+                if isinstance(score, (int, float)):
+                    label_text = f"{label_text} · {int(score)}"
             segments.append({
-                "label": label or (clip.get("title_suggestion") or clip.get("title") or f"Rank {rank_pos + 1}"),
+                "label": label_text,
                 "start": elapsed,
-                "end": elapsed + (finish - begin),
+                "end": elapsed + segment_length,
             })
-            elapsed += (finish - begin)
+            elapsed += segment_length
 
     if len(rendered) < 2:
         raise RuntimeError("Only one clip rendered, so there is nothing to rank")

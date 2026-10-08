@@ -2055,17 +2055,20 @@ def merge_rank_highlight(
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", str(list_path),
     ]
+    # The clips normally come out of the same renderer with identical parameters, but the concat
+    # demuxer is unforgiving: forcing a square pixel aspect and a single audio layout/rate keeps a
+    # stray difference from breaking the join or producing a file with mismatched streams.
     if overlay_ass_path and os.path.exists(overlay_ass_path):
         raw_ass = str(Path(overlay_ass_path).resolve()).replace("\\", "/")
         escaped = raw_ass.replace(":", "\\:").replace("'", "'\\''")
         fonts = f":fontsdir='{str(FONTS_DIR.resolve()).replace(chr(92), '/')}'" if FONTS_DIR.exists() and any(FONTS_DIR.glob("*.ttf")) else ""
-        cmd += ["-vf", f"subtitles='{escaped}'{fonts}"]
+        cmd += ["-vf", f"subtitles='{escaped}'{fonts},setsar=1"]
     else:
-        cmd += ["-vf", "null"]
+        cmd += ["-vf", "setsar=1"]
 
     cmd += [
         *ACTIVE_ENCODER_ARGS,
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
         "-movflags", "+faststart",
         "-avoid_negative_ts", "make_zero",
         str(output_path),

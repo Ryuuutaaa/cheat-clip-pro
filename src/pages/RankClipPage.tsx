@@ -255,6 +255,7 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
             clip_seconds: settings.rankHighlight.clipSeconds,
             position_mode: settings.rankHighlight.positionMode,
             show_numbers: true,
+            show_scores: settings.rankHighlight.showScores === true,
             ranks: settings.rankHighlight.ranks,
           } : undefined,
         },
