@@ -244,6 +244,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankWeight, setRankWeight] = useState<'regular' | 'semibold' | 'bold' | 'heavy'>('bold');
   const [rankShowBars, setRankShowBars] = useState(false);
   const [rankLabelsBusy, setRankLabelsBusy] = useState(false);
+  const [rankSecondsPerClip, setRankSecondsPerClip] = useState<Record<number, number>>({});
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankAutoOrder, setRankAutoOrder] = useState(false);
   const [rankOrderBusy, setRankOrderBusy] = useState(false);
@@ -428,6 +429,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     : (currentPreviewClip ? currentPreviewClip.end_time : 60);
   const clipDuration = Math.max(1, clipEnd - clipStart);
 
+  // The card's mock is a scaled-down copy of the 1080-wide canvas, so layout settings render there too.
+  const mockW = aspectRatio === '1:1' ? 190 : aspectRatio === '4:3' ? 220
+    : (aspectRatio === '16:9' || aspectRatio === '16:9_landscape') ? 268 : 168;
+  const mockPx = (v: number) => v * (mockW / 1080);
+  const rankWeightFont: Record<string, number> = { regular: 500, semibold: 600, bold: 700, heavy: 900 };
+
   // The rank page plays the whole ranking as one sequence, so the right-hand preview needs the
   // window of every rank, in playback order (countdown). AUTO mirrors the renderer: end on the first
   // sentence boundary at least 10s after the hook, at most 15s, with a 3s grace and a 10s fallback.
@@ -457,7 +464,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         const clip = selectedClips[i];
         const hook = Number(clip?.hook_time ?? clip?.start_time) || clip?.start_time || 0;
         const start = Math.max(clip?.start_time || 0, hook);
-        const clipEnd = clip?.end_time || start + seconds;
+        const perClip = rankSecondsPerClip[i];
+        const clipSeconds = perClip && perClip > 0 ? perClip : seconds;
+        const clipEnd = clip?.end_time || start + clipSeconds;
         return {
           clip: clip as ViralClip,
           label: (rankLabels[i] || '').trim() || clip?.title_suggestion || clip?.title || `Rank ${pos + 1}`,
@@ -466,7 +475,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           start,
           end: rankSecondsMode === 'auto'
             ? autoWindowEnd(start, clipEnd)
-            : Math.min(clipEnd, start + seconds),
+            : Math.min(clipEnd, start + clipSeconds),
         };
       })
       .filter(e => Boolean(e.clip))
@@ -1564,7 +1573,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   };
 
   const handleLaunch = () => {
-    const enrichedSelectedClips = selectedClips.map(c => {
+    const enrichedSelectedClips = selectedClips.map((c, i) => {
       const key = `${c.start_time}_${c.end_time}`;
       const custom = customClipTitles[key];
       const effectiveTitle = (custom !== undefined && custom.trim()) ? custom.trim() : (c.title_suggestion || c.title);
@@ -1573,6 +1582,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         title: effectiveTitle,
         title_suggestion: effectiveTitle,
         custom_title: effectiveTitle,
+        // Per-rank length; 0 means "inherit the general setting".
+        rank_seconds: rankSecondsPerClip[i] || 0,
       };
     });
 
@@ -3594,7 +3605,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       />
                     ) : null}
                     <div className="rank-preview-title">{rankTitle.trim() || t.studio.rankingDefault}</div>
-                    <div className={`rank-preview-list pos-${rankPosition}`}>
+                    <div
+                      className={`rank-preview-list pos-${rankPosition}`}
+                      style={{
+                        gap: rankSpacingY ? `${mockPx(rankSpacingY)}px` : undefined,
+                        transform: `translate(${mockPx(rankOffsetX)}px, ${mockPx(rankOffsetY)}px) scale(${rankScale})`,
+                        transformOrigin: rankPosition.startsWith('bottom') ? 'left bottom' : 'left top',
+                      }}
+                    >
                       {rankOrder.slice(0, rankCount).map((clipIdx, position) => {
                         const clip = selectedClips[clipIdx];
                         if (!clip) return null;
@@ -3603,7 +3621,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         return (
                           <div key={`${clipIdx}-${position}`} className="rank-preview-item">
                             <span className={`rank-preview-num ${position < 3 ? `medal-${position + 1}` : ''}`}>{position + 1}.</span>
-                            <span className="rank-preview-label">{label}</span>
+                            <span className="rank-preview-label" style={{ fontWeight: rankWeightFont[rankWeight] }}>{label}</span>
                           </div>
                         );
                       })}
@@ -3719,9 +3737,26 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   ))}
                 </div>
 
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
-                  {t.studio.rankLayoutLabel}
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}> · {t.studio.rankDragListHint}</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                    {t.studio.rankLayoutLabel}
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}> · {t.studio.rankDragListHint}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-quiet"
+                    onClick={() => {
+                      setRankOffsetX(0);
+                      setRankOffsetY(0);
+                      setRankSpacingY(0);
+                      setRankScale(1);
+                      setRankWeight('bold');
+                    }}
+                    style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', flexShrink: 0 }}
+                    title={t.studio.rankLayoutReset}
+                  >
+                    ↺ {t.studio.rankLayoutReset}
+                  </button>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.7rem' }}>
                   {([
@@ -3893,6 +3928,26 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           onChange={(e) => setRankLabels(prev => ({ ...prev, [clipIdx]: e.target.value }))}
                           style={{ flex: 1 }}
                         />
+                        <input
+                          type="number"
+                          min={5}
+                          max={60}
+                          className="batch-title-input"
+                          placeholder={String(rankSeconds)}
+                          title={t.studio.rankSecondsPerRank}
+                          aria-label={t.studio.rankSecondsPerRank}
+                          value={rankSecondsPerClip[clipIdx] ?? ''}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            setRankSecondsPerClip(prev => {
+                              const next = { ...prev };
+                              if (!v || v <= 0) delete next[clipIdx];
+                              else next[clipIdx] = Math.max(5, Math.min(60, v));
+                              return next;
+                            });
+                          }}
+                          style={{ width: '52px', flexShrink: 0, textAlign: 'center' }}
+                        />
                         <button
                           type="button" className="copy-mini-btn has-text" disabled={position === 0}
                           title={t.studio.rankMoveUp} onClick={() => moveRank(position, -1)}
@@ -4030,6 +4085,13 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 spacingY={rankSpacingY}
                 scale={rankScale}
                 labelWeight={rankWeight}
+                staticCropPercent={
+                  !enableFaceTracking || streamerPreset !== 'none' ? 50
+                    : facecamPosition === 'left' ? 28
+                    : facecamPosition === 'right' ? 72
+                    : facecamPosition === 'center' ? 50
+                    : null
+                }
                 onOffsetChange={(x, y) => {
                   setRankOffsetX(Math.round(x));
                   setRankOffsetY(Math.round(y));
@@ -4675,6 +4737,22 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    {batchProgress.overall_status === 'running' && (
+                      <button
+                        type="button"
+                        className="btn-quiet"
+                        onClick={() => {
+                          fetch(`/api/cancel-render/${batchProgress.batch_id}`, { method: 'POST' }).catch(() => {
+                            // the button is a convenience; a failure just leaves the batch running
+                          });
+                        }}
+                        style={{ fontSize: '0.72rem', padding: '0.3rem 0.65rem' }}
+                        title={t.studio.cancelRender}
+                      >
+                        ✕ {t.studio.cancelRender}
+                      </button>
+                    )}
+
                     {batchProgress.clips.some(c => c.status === 'error') && batchProgress.overall_status !== 'running' && onRetryClip && (
                       <button
                         type="button"

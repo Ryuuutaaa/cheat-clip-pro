@@ -32,6 +32,7 @@ from backend.services.render_service import (
     process_batch_rendering,
     process_batch_retry,
     prune_render_registry,
+    request_batch_cancel,
 )
 from backend.utils.rank_signals import compute_multimodal_order
 
@@ -214,6 +215,19 @@ async def get_render_progress(batch_id: str):
             "X-Accel-Buffering": "no",
         }
     )
+
+
+@router.post("/api/cancel-render/{batch_id}")
+def cancel_render(batch_id: str, request: Request):
+    """Stops a running batch after the clip it is working on finishes."""
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
+    clean_id = os.path.basename(batch_id)
+    if clean_id not in RENDER_BATCHES:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    request_batch_cancel(clean_id)
+    logger.info(f"Cancel requested for batch {clean_id}")
+    return {"cancelling": clean_id}
 
 
 @router.get("/api/rendered-files")

@@ -29,6 +29,18 @@ from backend.schemas.render import RenderBatchRequest, RenderSettingsModel
 RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
 
+# Batches the user asked to stop: the loops check between clips, so the current clip finishes and
+# nothing else starts.
+CANCELLED_BATCHES: set = set()
+
+
+def request_batch_cancel(batch_id: str) -> None:
+    CANCELLED_BATCHES.add(batch_id)
+
+
+def is_batch_cancelled(batch_id: str) -> bool:
+    return batch_id in CANCELLED_BATCHES
+
 # Two ranked moments that cover the same stretch of video would play it twice; anything overlapping
 # an accepted rank by more than this is dropped, the usual threshold for temporal NMS.
 RANK_NMS_IOU = 0.3
@@ -323,7 +335,7 @@ def update_batch_summary_and_zip(batch_id: str, settings: RenderSettingsModel):
         batch["warning_message"] = f"{len(failed_clips)} of {len(batch['clips'])} clips encountered errors. You can retry failed clips anytime."
     else:
         batch["overall_status"] = "completed"
-        batch["warning_message"] = None
+        batch["warning_message"] = "Render cancelled by the user." if batch.get("cancelled") else None
 
 
 def sanitize_settings_media_paths(settings: RenderSettingsModel) -> None:
@@ -421,7 +433,10 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     kept, kept_spans = [], []
     for candidate in ordered:
         _, candidate_clip, _, _ = candidate
-        span = rank_window(candidate_clip, transcript_lines, auto_seconds, seconds)
+        span = rank_window(
+            candidate_clip, transcript_lines, auto_seconds,
+            float(candidate_clip.get("rank_seconds") or 0) or seconds,
+        )
         if any(_temporal_iou(span, seen) > RANK_NMS_IOU for seen in kept_spans):
             logger.info(f"Rank NMS: dropped '{candidate_clip.get('title')}' — its window overlaps a higher-ranked moment")
             continue
@@ -455,7 +470,12 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     segments: List[Dict[str, Any]] = []
     elapsed = 0.0
     for rank_pos, (src_idx, clip, label, shown_rank) in enumerate(ordered):
-        begin, finish = rank_window(clip, transcript_lines, auto_seconds, seconds)
+        # A rank can carry its own length; 0 means "use the general setting".
+        entry_seconds = float(clip.get("rank_seconds") or 0) or seconds
+        if is_batch_cancelled(batch_id):
+            logger.info(f"Batch {batch_id} cancelled by the user — stopping before rank {shown_rank}")
+            break
+        begin, finish = rank_window(clip, transcript_lines, auto_seconds, entry_seconds)
 
         trimmed = dict(clip)
         trimmed["start_time"] = begin
@@ -495,6 +515,15 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
                 "end": elapsed + segment_length,
             })
             elapsed += segment_length
+
+    if is_batch_cancelled(batch_id):
+        CANCELLED_BATCHES.discard(batch_id)
+        batch["cancelled"] = True
+        for entry in batch.get("clips") or []:
+            if entry.get("status") in ("pending", "downloading", "transcribing", "rendering"):
+                entry["status"] = "skipped"
+        update_batch_summary_and_zip(batch_id, settings)
+        return
 
     if len(rendered) < 2:
         raise RuntimeError("Only one clip rendered, so there is nothing to rank")
@@ -589,6 +618,13 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
     # files the ranking never ships.
     if not rank_mode:
         for idx, clip in enumerate(clips):
+            if is_batch_cancelled(batch_id):
+                logger.info(f"Batch {batch_id} cancelled by the user — stopping before clip {idx + 1}")
+                batch["cancelled"] = True
+                for entry in batch.get("clips") or []:
+                    if entry.get("status") in ("pending", "downloading", "transcribing", "rendering"):
+                        entry["status"] = "skipped"
+                break
             batch["current_clip_index"] = idx
             await render_single_batch_clip(
                 batch_id=batch_id,

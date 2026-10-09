@@ -39,6 +39,8 @@ interface RankLivePreviewProps {
   labelWeight?: string;
   /** Dragging the list in the preview reports the new offset, Figma-style. */
   onOffsetChange?: (x: number, y: number) => void;
+  /** A fixed crop percent (0-100) when the framing is not automatic; null asks face detection. */
+  staticCropPercent?: number | null;
 }
 
 /**
@@ -69,6 +71,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   scale = 1,
   labelWeight = 'bold',
   onOffsetChange,
+  staticCropPercent = 50,
 }) => {
   const { t } = useLanguage();
   const directRef = useRef<HTMLVideoElement | null>(null);
@@ -128,6 +131,71 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   // clicks working as jumps.
   const dragState = useRef<{ startX: number; startY: number; baseX: number; baseY: number; moved: boolean } | null>(null);
   const dragMovedRef = useRef(false);
+
+  // Crop the preview the way the render will: automatic framing asks the face detector for the
+  // active rank's window and slides the video toward the speaker, mirroring the clip preview's math.
+  const [cropPercent, setCropPercent] = useState<number>(staticCropPercent ?? 50);
+  const cropCacheRef = useRef<Map<number, number>>(new Map());
+
+  useEffect(() => {
+    if (staticCropPercent != null) {
+      setCropPercent(staticCropPercent);
+      return;
+    }
+    if (!active) return;
+    const cached = cropCacheRef.current.get(active.rank);
+    if (cached !== undefined) {
+      setCropPercent(cached);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({
+      video_id: videoId || '',
+      timestamp: String(Math.max(0, Math.round(active.start))),
+      video_url: videoUrl || '',
+      facecam_position: 'center',
+      streamer_preset: 'none',
+    });
+    fetch(`/api/detect-face?${params.toString()}`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled || !d || typeof d.cx !== 'number') return;
+        let safeCx = d.cx;
+        if (safeCx >= 0.46 && safeCx <= 0.54) safeCx = 0.5;
+        safeCx = Math.max(0.15, Math.min(0.85, safeCx));
+        const outputRatio = aspectRatio === '16:9' || aspectRatio === '16:9_landscape' ? 16 / 9
+          : aspectRatio === '4:3' ? 4 / 3
+          : aspectRatio === '1:1' ? 1
+          : 9 / 16;
+        const sourceAspect = typeof d.aspect === 'number' && d.aspect > 0 ? d.aspect : 16 / 9;
+        const cropFraction = Math.min(1, outputRatio / sourceAspect);
+        const slack = 1 - cropFraction;
+        const percent = slack > 0.001
+          ? Math.max(0, Math.min(1, (safeCx - cropFraction / 2) / slack)) * 100
+          : 50;
+        cropCacheRef.current.set(active.rank, percent);
+        setCropPercent(percent);
+      })
+      .catch(() => {
+        // no detection available: stay centred
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staticCropPercent, active?.rank, active?.start, aspectRatio, videoId, videoUrl]);
+
+  const handleListKeyDown = (e: React.KeyboardEvent) => {
+    if (!onOffsetChange) return;
+    const step = e.shiftKey ? 50 : 10;
+    const deltas: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step],
+    };
+    const d = deltas[e.key];
+    if (!d) return;
+    e.preventDefault();
+    onOffsetChange(offsetX + d[0], offsetY + d[1]);
+  };
   const handleListPointerDown = (e: React.PointerEvent) => {
     if (!onOffsetChange) return;
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -357,7 +425,11 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
 
   return (
     <div className="rank-live-preview">
-      <div className={`rank-live-frame ${ratioClass}`} ref={frameRef}>
+      <div
+        className={`rank-live-frame ${ratioClass}`}
+        ref={frameRef}
+        style={{ ['--crop-pct' as string]: cropPercent } as React.CSSProperties}
+      >
         {renderedUrl && viewMode === 'rendered' ? (
           <>
             <video
@@ -381,6 +453,8 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
               width: '100%',
               height: '100%',
               objectFit: isLetterbox ? 'contain' : 'cover',
+              objectPosition: `${cropPercent}% 50%`,
+              transition: 'object-position 0.3s ease-out',
               background: '#000',
             }}
           />
@@ -420,6 +494,8 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
             onPointerMove={handleListPointerMove}
             onPointerUp={handleListPointerUp}
             onPointerCancel={handleListPointerUp}
+            tabIndex={0}
+            onKeyDown={handleListKeyDown}
           >
             {skeleton.map(e => {
               const revealed = playedRanks.has(e.rank);
