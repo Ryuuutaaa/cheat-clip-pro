@@ -366,6 +366,7 @@ def prune_render_registry(max_entries: int = 50) -> None:
         oldest = terminal_ids.pop(0)  # insertion order == oldest first
         RENDER_BATCHES.pop(oldest, None)
         BATCH_REQUESTS.pop(oldest, None)
+        CANCELLED_BATCHES.discard(oldest)
         overflow -= 1
 
 
@@ -582,6 +583,12 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         for entry in batch.get("clips") or []:
             if entry.get("status") in ("pending", "downloading", "transcribing", "rendering"):
                 entry["status"] = "skipped"
+        # The pre-fetched span can be large, so it must not survive a cancelled render.
+        if pre_source_path:
+            try:
+                os.remove(pre_source_path)
+            except Exception:
+                pass
         update_batch_summary_and_zip(batch_id, settings)
         return
 
@@ -688,6 +695,7 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
         for idx, clip in enumerate(clips):
             if is_batch_cancelled(batch_id):
                 logger.info(f"Batch {batch_id} cancelled by the user — stopping before clip {idx + 1}")
+                CANCELLED_BATCHES.discard(batch_id)   # a later retry of this batch must run
                 batch["cancelled"] = True
                 for entry in batch.get("clips") or []:
                     if entry.get("status") in ("pending", "downloading", "transcribing", "rendering"):

@@ -152,6 +152,9 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
       return;
     }
     let cancelled = false;
+    // A slow or unreachable detector must never leave the preview waiting forever.
+    const controller = new AbortController();
+    const abortTimer = window.setTimeout(() => controller.abort(), 6000);
     const params = new URLSearchParams({
       video_id: videoId || '',
       timestamp: String(Math.max(0, Math.round(active.start))),
@@ -159,7 +162,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
       facecam_position: 'center',
       streamer_preset: 'none',
     });
-    fetch(`/api/detect-face?${params.toString()}`)
+    fetch(`/api/detect-face?${params.toString()}`, { signal: controller.signal })
       .then(r => r.json())
       .then(d => {
         if (cancelled || !d || typeof d.cx !== 'number') return;
@@ -181,9 +184,12 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
       })
       .catch(() => {
         // no detection available: stay centred
-      });
+      })
+      .finally(() => window.clearTimeout(abortTimer));
     return () => {
       cancelled = true;
+      controller.abort();
+      window.clearTimeout(abortTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staticCropPercent, active?.rank, active?.start, aspectRatio, videoId, videoUrl]);

@@ -684,6 +684,13 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     }));
   }, [rankOffsetX, rankOffsetY, rankSpacingY, rankScale, rankWeight, rankPosition, rankShowScores, rankShowBars, rankClipTransition, rankLabelTransition]);
 
+  useEffect(() => {
+    if (batchProgress?.overall_status === 'completed') {
+      // Let the page around us know a fresh render landed, so a finished-list can refresh.
+      window.dispatchEvent(new CustomEvent('rank-render-finished'));
+    }
+  }, [batchProgress?.overall_status]);
+
   // Which rank's clip is playing in the rank preview, and how to play it for this source type.
   const rankPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
 

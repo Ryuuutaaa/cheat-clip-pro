@@ -158,8 +158,13 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
     const onVisible = () => {
       if (document.visibilityState === 'visible') refreshRenderedFiles();
     };
+    const onRendered = () => refreshRenderedFiles();
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    window.addEventListener('rank-render-finished', onRendered);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('rank-render-finished', onRendered);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
