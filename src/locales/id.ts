@@ -788,6 +788,8 @@ export const id: Translations = {
     finishedRefresh: "Muat ulang daftar",
     finishedEmpty: "Belum ada hasil render ranking. Render satu dari halaman ini, hasilnya akan muncul di sini.",
     finishedLoading: "Memuat daftar hasil render…",
+    finishedDelete: "Hapus file ini dari disk",
+    finishedDeleteConfirm: (name: string) => `Hapus "${name}" dari disk? Tindakan ini permanen.`,
   },
   aiUsage: {
     btn: "Penggunaan AI",

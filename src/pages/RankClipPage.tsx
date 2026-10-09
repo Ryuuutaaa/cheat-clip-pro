@@ -129,6 +129,18 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
     refreshRenderedFiles();
   }, []);
 
+  const deleteRenderedFile = (name: string) => {
+    if (!window.confirm(t.rankPage.finishedDeleteConfirm(name))) return;
+    fetch(`/api/rendered-files/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      .then(r => {
+        if (!r.ok) throw new Error(String(r.status));
+        setRenderedFiles(prev => prev.filter(f => f.name !== name));
+      })
+      .catch(() => {
+        // the row stays when the delete is refused
+      });
+  };
+
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') refreshRenderedFiles();
@@ -507,6 +519,18 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
                   {new Date(f.modified * 1000).toLocaleDateString()} · {(f.size / 1e6).toFixed(1)}MB
                 </span>
                 <a href={f.download_url} download className="quick-dl-btn" style={{ flexShrink: 0 }}>⬇️ MP4</a>
+                <button
+                  type="button"
+                  onClick={() => deleteRenderedFile(f.name)}
+                  title={t.rankPage.finishedDelete}
+                  aria-label={t.rankPage.finishedDelete}
+                  style={{
+                    background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer',
+                    fontSize: '0.9rem', padding: '0.1rem 0.35rem', flexShrink: 0,
+                  }}
+                >
+                  🗑
+                </button>
               </div>
             ))}
           </div>

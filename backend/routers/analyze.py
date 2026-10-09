@@ -1454,4 +1454,10 @@ async def suggest_rank_labels(request: Dict = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Label suggestion failed: {str(e)[:200]}")
+        msg = str(e)
+        if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+            raise HTTPException(
+                status_code=429,
+                detail="Gemini quota reached (429). Wait a minute before asking for labels again.",
+            )
+        raise HTTPException(status_code=502, detail=f"Label suggestion failed: {msg[:200]}")

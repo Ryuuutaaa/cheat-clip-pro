@@ -786,6 +786,8 @@ export const en = {
     finishedRefresh: "Reload the list",
     finishedEmpty: "No finished rankings yet. Render one from this page and it will show up here.",
     finishedLoading: "Loading the finished renders…",
+    finishedDelete: "Delete this file from disk",
+    finishedDeleteConfirm: (name: string) => `Delete "${name}" from disk? This cannot be undone.`,
   },
   aiUsage: {
     btn: "AI Usage",

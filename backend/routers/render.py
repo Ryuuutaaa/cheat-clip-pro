@@ -8,10 +8,11 @@ import uuid
 import zipfile
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from backend.utils.text import build_clip_metadata_text
+from backend.routers.system import _origin_is_allowed
 
 from backend.config import (
     ACTIVE_ENCODER_NAME,
@@ -244,6 +245,26 @@ def list_rendered_files(kind: Optional[str] = None, limit: int = 12):
 
     files.sort(key=lambda f: f["modified"], reverse=True)
     return {"files": files[: max(1, min(50, limit))]}
+
+
+@router.delete("/api/rendered-files/{file_name}")
+def delete_rendered_file(file_name: str, request: Request):
+    """Removes one finished render from disk. Same-origin only, like the other mutating routes."""
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
+
+    safe_name = os.path.basename(file_name)
+    if not safe_name.lower().endswith(".mp4"):
+        raise HTTPException(status_code=400, detail="Only rendered mp4 files can be deleted")
+    file_path = EXPORTS_DIR / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Rendered file not found")
+    try:
+        file_path.unlink()
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Could not delete the file: {str(e)[:150]}")
+    logger.info(f"Deleted rendered file {safe_name}")
+    return {"deleted": safe_name}
 
 
 @router.get("/api/download-rendered/{file_name}")
