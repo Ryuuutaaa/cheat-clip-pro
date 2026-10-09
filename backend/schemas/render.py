@@ -24,6 +24,11 @@ class RankHighlightModel(BaseModel):
     offset_y: int = 0                        # vertical shift of the whole list
     scale: float = 1.0                       # overall size multiplier (0.5-2.0)
     label_weight: str = "bold"               # regular | semibold | bold | heavy
+    # Transition between ranked clips: hard | fade_black | fade_white, and how long it lasts
+    transition: str = "hard"
+    transition_seconds: float = 0.3
+    # How each rank's label appears: none | fade | slide
+    label_transition: str = "fade"
     # Optional per-rank overrides from the UI: [{"clip_index": int, "label": str}], in rank order.
     ranks: Optional[List[Dict[str, Any]]] = None
 
@@ -74,6 +79,9 @@ class RenderSettingsModel(BaseModel):
     watermark_x: Optional[float] = 90.0
     watermark_y: Optional[float] = 8.0
     hardware_accel: Optional[str] = "auto"
+    # Transition applied to a clip's own edges, e.g. "black:0.3" (ranked parts use it so the clips
+    # dip through a colour between each other)
+    fade_in_out: Optional[str] = None
     rank_highlight: Optional[RankHighlightModel] = None
 
 class RenderBatchRequest(BaseModel):

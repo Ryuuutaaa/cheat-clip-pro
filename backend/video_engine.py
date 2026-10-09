@@ -1967,6 +1967,7 @@ def build_rank_overlay_ass(
     offset_y: int = 0,
     scale: float = 1.0,
     label_weight: str = "bold",
+    label_transition: str = "none",
 ) -> str:
     """
     Writes the overlay for a ranking compilation: one headline for the whole video, plus a stacked
@@ -2039,6 +2040,15 @@ def build_rank_overlay_ass(
         "heavy": ("\\b1", "\\bord4"),
     }
     bold_tag, border_tag = weight_map.get(label_weight or "bold", weight_map["bold"])
+    # How each label lands: it can fade in where it belongs, or slide up into place as it appears.
+    transition = (label_transition or "none").lower()
+    slot_fade = "\\fad(300,0)" if transition in ("fade", "slide") else ""
+    if transition == "fade":
+        entry_motion = "\\fad(250,0)"
+    elif transition == "slide":
+        entry_motion = None  # built per entry, it needs the anchor position
+    else:
+        entry_motion = ""
     bar_w = int(420 * max(0.5, min(2.0, float(scale))))
     bar_h = max(4, int(10 * max(0.5, min(2.0, float(scale)))))
 
@@ -2054,7 +2064,7 @@ def build_rank_overlay_ass(
         for r in range(1, max_rank + 1):
             y_slot = _y_for(r)
             slot_text = (
-                f"{{\\an{anchor['an']}\\pos({list_x},{y_slot})}}{{\\fs{font_size}}}"
+                f"{{\\an{anchor['an']}\\pos({list_x},{y_slot})}}{{\\fs{font_size}}}{slot_fade}"
                 f"{{\\c&H60FFFFFF&}}{r}."
             )
             lines.append(f"Dialogue: 0,0:00:00.00,{_ass_timestamp(total)},RankSlot,,0,0,0,,{slot_text}")
@@ -2085,8 +2095,15 @@ def build_rank_overlay_ass(
         est_width = (len(label) + len(number) + 1) * font_size * 0.56
         avail = max(200.0, float(width) - list_x - 40.0)
         line_fs = font_size if est_width <= avail else max(18, int(font_size * avail / est_width))
+        if entry_motion is None:
+            # Slide: start a little lower and travel into place while fading in.
+            motion_tag = f"\\move({list_x},{y + 70},{list_x},{y},0,300)\\fad(200,0)"
+        elif entry_motion:
+            motion_tag = entry_motion
+        else:
+            motion_tag = ""
         text = (
-            f"{{\\an{anchor['an']}\\pos({list_x},{y})\\fs{line_fs}{bold_tag}{border_tag}}}"
+            f"{{\\an{anchor['an']}\\pos({list_x},{y})\\fs{line_fs}{bold_tag}{border_tag}{motion_tag}}}"
             f"{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
         )
         lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")
@@ -3662,7 +3679,9 @@ def render_clip_to_mp4(
     original_audio_volume: float = 1.0,
     # Hardware acceleration selection ('auto', 'nvenc', 'amf', 'qsv', 'cpu')
     hardware_accel: Optional[str] = "auto",
-    title_y_percent: Optional[float] = None
+    title_y_percent: Optional[float] = None,
+    # Optional transition applied to this clip's own edges, e.g. "black:0.3" or "white:0.3"
+    fade_in_out: Optional[str] = None
 ) -> str:
     """
     Renders the final 1080x1920 short-form video with layout, aspect ratio, titles, subtitles,
@@ -3834,6 +3853,29 @@ def render_clip_to_mp4(
             out_audio_map = "[a_final]"
     else:
         out_audio_map = "0:a:0?"
+
+    # Clip transition: a short fade from a colour at the start and back into it at the end. Applied
+    # per clip, so concatenated clips dip through that colour between each other.
+    if fade_in_out:
+        try:
+            fade_colour, fade_secs_raw = str(fade_in_out).split(":", 1)
+            fade_secs = max(0.05, min(2.0, float(fade_secs_raw)))
+        except (ValueError, TypeError):
+            fade_colour, fade_secs = "black", 0.3
+        fade_colour = "white" if fade_colour == "white" else "black"
+        fade_out_start = max(0.0, dur - fade_secs)
+        filter_chains.append(
+            f"{out_video_map}fade=t=in:st=0:d={fade_secs:.2f}:color={fade_colour},"
+            f"fade=t=out:st={fade_out_start:.2f}:d={fade_secs:.2f}:color={fade_colour}[v_faded]"
+        )
+        out_video_map = "[v_faded]"
+        if out_audio_map and out_audio_map != "0:a:0?":
+            audio_base = out_audio_map if out_audio_map.startswith("[") else f"[{out_audio_map}]"
+            filter_chains.append(
+                f"{audio_base}afade=t=in:st=0:d={fade_secs:.2f},"
+                f"afade=t=out:st={fade_out_start:.2f}:d={fade_secs:.2f}[a_faded]"
+            )
+            out_audio_map = "[a_faded]"
 
     final_filter_complex = ";".join(filter_chains)
 

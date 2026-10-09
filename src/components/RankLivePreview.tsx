@@ -37,6 +37,8 @@ interface RankLivePreviewProps {
   spacingY?: number;
   scale?: number;
   labelWeight?: string;
+  /** How a revealed label appears: none | fade | slide (mirrors the burnt-in overlay). */
+  labelTransition?: string;
   /** Dragging the list in the preview reports the new offset, Figma-style. */
   onOffsetChange?: (x: number, y: number) => void;
   /** A fixed crop percent (0-100) when the framing is not automatic; null asks face detection. */
@@ -70,6 +72,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   spacingY = 0,
   scale = 1,
   labelWeight = 'bold',
+  labelTransition = 'none',
   onOffsetChange,
   staticCropPercent = 50,
 }) => {
@@ -516,7 +519,9 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
                 >
                   <span className={`rank-preview-num ${e.rank <= 3 ? `medal-${e.rank}` : ''} ${revealed ? '' : 'dimmed'}`}>{e.rank}.</span>
                   {revealed && (
-                    <span className="rank-preview-label">
+                    <span
+                      className={`rank-preview-label${labelTransition === 'fade' ? ' rank-label-anim' : ''}${labelTransition === 'slide' ? ' rank-label-anim rank-label-slide' : ''}`}
+                    >
                       {trunc(e.label)}
                       {showScores && typeof e.score === 'number' ? ` · ${Math.round(e.score)}` : ''}
                     </span>

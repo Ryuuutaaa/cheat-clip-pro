@@ -125,6 +125,9 @@ export interface RenderSettings {
     scale?: number;
     label_weight?: string;
     show_progress_bars?: boolean;
+    transition?: 'hard' | 'fade_black' | 'fade_white';
+    transition_seconds?: number;
+    label_transition?: 'none' | 'fade' | 'slide';
     max_label_chars?: number;
     ranks: { clip_index: number; label: string; rank?: number }[];
   };

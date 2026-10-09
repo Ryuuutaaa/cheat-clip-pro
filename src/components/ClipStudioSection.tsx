@@ -244,6 +244,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankScale, setRankScale] = useState(1);
   const [rankWeight, setRankWeight] = useState<'regular' | 'semibold' | 'bold' | 'heavy'>('bold');
   const [rankShowBars, setRankShowBars] = useState(false);
+  const [rankClipTransition, setRankClipTransition] = useState<'hard' | 'fade_black' | 'fade_white'>('hard');
+  const [rankLabelTransition, setRankLabelTransition] = useState<'none' | 'fade' | 'slide'>('fade');
   const [rankLabelsBusy, setRankLabelsBusy] = useState(false);
   const [rankSecondsPerClip, setRankSecondsPerClip] = useState<Record<number, number>>({});
   const [rankOrder, setRankOrder] = useState<number[]>([]);
@@ -660,6 +662,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       if (typeof d.position === 'string') setRankPosition(d.position);
       if (typeof d.showScores === 'string') setRankShowScores(d.showScores);
       if (typeof d.showBars === 'boolean') setRankShowBars(d.showBars);
+      if (typeof d.clipTransition === 'string') setRankClipTransition(d.clipTransition);
+      if (typeof d.labelTransition === 'string') setRankLabelTransition(d.labelTransition);
     } catch {
       // a corrupt entry should never stop the card from rendering
     }
@@ -676,8 +680,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       position: rankPosition,
       showScores: rankShowScores,
       showBars: rankShowBars,
+      clipTransition: rankClipTransition,
+      labelTransition: rankLabelTransition,
     }));
-  }, [rankOffsetX, rankOffsetY, rankSpacingY, rankScale, rankWeight, rankPosition, rankShowScores, rankShowBars]);
+  }, [rankOffsetX, rankOffsetY, rankSpacingY, rankScale, rankWeight, rankPosition, rankShowScores, rankShowBars, rankClipTransition, rankLabelTransition]);
 
   // Which rank's clip is playing in the rank preview, and how to play it for this source type.
   const rankPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -1661,6 +1667,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         scale: rankScale,
         label_weight: rankWeight,
         show_progress_bars: rankShowBars,
+        transition: rankClipTransition,
+        transition_seconds: 0.3,
+        label_transition: rankLabelTransition,
         max_label_chars: 0,
         // Ranks are numbered 1..N with the best first, but the video plays them in countdown order so
         // the number-one moment lands last. The explicit `rank` keeps the on-screen numbers correct
@@ -3839,6 +3848,44 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   ))}
                 </div>
 
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>{t.studio.rankClipTransitionLabel}</div>
+                <div className="pill-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.7rem' }}>
+                  {([
+                    ['hard', t.studio.rankTransitionHard],
+                    ['fade_black', t.studio.rankTransitionBlack],
+                    ['fade_white', t.studio.rankTransitionWhite],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`pill-btn ${rankClipTransition === id ? 'active' : ''}`}
+                      style={{ fontSize: '0.72rem', padding: '0.24rem 0.6rem' }}
+                      onClick={() => setRankClipTransition(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>{t.studio.rankLabelTransitionLabel}</div>
+                <div className="pill-group" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.7rem' }}>
+                  {([
+                    ['none', t.studio.rankLabelTransNone],
+                    ['fade', t.studio.rankLabelTransFade],
+                    ['slide', t.studio.rankLabelTransSlide],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`pill-btn ${rankLabelTransition === id ? 'active' : ''}`}
+                      style={{ fontSize: '0.72rem', padding: '0.24rem 0.6rem' }}
+                      onClick={() => setRankLabelTransition(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.76rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem' }}>
                   <input
                     type="checkbox"
@@ -4130,6 +4177,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 spacingY={rankSpacingY}
                 scale={rankScale}
                 labelWeight={rankWeight}
+                labelTransition={rankLabelTransition}
                 staticCropPercent={
                   !enableFaceTracking || streamerPreset !== 'none' ? 50
                     : facecamPosition === 'left' ? 28

@@ -241,6 +241,7 @@ async def render_single_batch_clip(
             hook_sfx_volume=float((settings.hook_sfx_volume if settings.hook_sfx_volume is not None else 100.0) / 100.0),
             original_audio_volume=float((settings.original_audio_volume if settings.original_audio_volume is not None else 100.0) / 100.0),
             hardware_accel=settings.hardware_accel or "auto",
+            fade_in_out=getattr(settings, "fade_in_out", None),
             title_y_percent=settings.title_y_percent
         )
 
@@ -469,6 +470,13 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     # is the custom ranking headline. Clip titles still exist in the UI and feed the labels.
     clip_settings.title_position = "none"
     clip_settings.title_text = None
+    # Clip transition: every ranked part fades in and out of a colour, so the joined video dips
+    # through it between ranks.
+    rank_transition = (getattr(rank_settings, "transition", "hard") or "hard").lower()
+    if rank_transition in ("fade_black", "fade_white"):
+        colour = "white" if rank_transition == "fade_white" else "black"
+        secs = max(0.1, min(1.0, float(getattr(rank_settings, "transition_seconds", 0.3) or 0.3)))
+        clip_settings.fade_in_out = f"{colour}:{secs:.2f}"
 
     rendered: List[str] = []
     segments: List[Dict[str, Any]] = []
@@ -593,6 +601,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         offset_y=int(getattr(rank_settings, "offset_y", 0) or 0),
         scale=float(getattr(rank_settings, "scale", 1.0) or 1.0),
         label_weight=str(getattr(rank_settings, "label_weight", "bold") or "bold"),
+        label_transition=str(getattr(rank_settings, "label_transition", "none") or "none"),
     )
     out_name = f"ranking_{batch_id}.mp4"
     out_path = str(EXPORTS_DIR / out_name)
