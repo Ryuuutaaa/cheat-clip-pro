@@ -2086,16 +2086,19 @@ def build_rank_overlay_ass(
         avail = max(200.0, float(width) - list_x - 40.0)
         line_fs = font_size if est_width <= avail else max(18, int(font_size * avail / est_width))
         text = (
-            f"{{\\an{anchor['an']}\\pos({list_x},{y})}}{{\\fs{line_fs}}}{bold_tag}{border_tag}"
+            f"{{\\an{anchor['an']}\\pos({list_x},{y})\\fs{line_fs}{bold_tag}{border_tag}}}"
             f"{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
         )
         lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")
 
         # Duration line under the label: a dim track for the whole entry plus a fill that grows with
         # the entry's own clip. \fscx animates the drawing from zero to full width, which libass
-        # interpolates smoothly, so the viewer sees how far into this rank the video is.
+        # interpolates smoothly, so the viewer sees how far into this rank the video is. The bar must
+        # clear the text: a top anchor draws the text downward from y, so the bar sits below the
+        # line's own font height, while a bottom anchor ends at y and only needs a small gap.
         if show_progress_bars:
-            bar_y = y + int((34 if anchor_is_bottom else 26) * max(0.5, min(2.0, float(scale))))
+            gap = int(10 * max(0.5, min(2.0, float(scale))))
+            bar_y = y + gap if anchor_is_bottom else y + line_fs + gap
             rect = f"m 0 0 l {bar_w} 0 l {bar_w} {bar_h} l 0 {bar_h}"
             track = f"{{\\an{anchor['an']}\\pos({list_x},{bar_y})\\bord0\\1c&H55FFFFFF&\\p1}}{rect}{{\\p0}}"
             fill = (
