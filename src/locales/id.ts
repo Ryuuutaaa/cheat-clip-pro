@@ -801,6 +801,8 @@ export const id: Translations = {
     finishedEmpty: "Belum ada hasil render ranking. Render satu dari halaman ini, hasilnya akan muncul di sini.",
     finishedLoading: "Memuat daftar hasil render…",
     finishedDelete: "Hapus file ini dari disk",
+    finishedDeleteAll: "Hapus semua",
+    finishedDeleteAllConfirm: (count: number) => `Hapus SEMUA ${count} video ranking dari disk? ZIP arsip tetap disimpan, jadi masih bisa dipulihkan.`,
     finishedDeleteConfirm: (name: string) => `Hapus "${name}" dari disk? Tindakan ini permanen.`,
   },
   aiUsage: {

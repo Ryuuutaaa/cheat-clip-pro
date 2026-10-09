@@ -261,6 +261,39 @@ def list_rendered_files(kind: Optional[str] = None, limit: int = 12):
     return {"files": files[: max(1, min(50, limit))]}
 
 
+@router.delete("/api/rendered-files")
+def delete_all_rendered_files(request: Request, kind: Optional[str] = "ranking"):
+    """Removes every finished render of one kind. Same-origin only, like the single delete.
+
+    Only the videos go; the ZIP archives stay, so a mistake here is still recoverable.
+    """
+    if not _origin_is_allowed(request.headers.get("origin", "")):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected")
+
+    deleted, failed = [], []
+    try:
+        candidates = list(EXPORTS_DIR.iterdir())
+    except FileNotFoundError:
+        return {"deleted": [], "failed": []}
+
+    for entry in candidates:
+        if not entry.is_file() or entry.suffix.lower() != ".mp4":
+            continue
+        is_ranking = entry.name.startswith("ranking_")
+        if kind == "ranking" and not is_ranking:
+            continue
+        if kind == "clips" and is_ranking:
+            continue
+        try:
+            entry.unlink()
+            deleted.append(entry.name)
+        except OSError:
+            failed.append(entry.name)
+
+    logger.info(f"Deleted {len(deleted)} rendered files (kind={kind}), {len(failed)} failed")
+    return {"deleted": deleted, "failed": failed}
+
+
 @router.delete("/api/rendered-files/{file_name}")
 def delete_rendered_file(file_name: str, request: Request):
     """Removes one finished render from disk. Same-origin only, like the other mutating routes."""

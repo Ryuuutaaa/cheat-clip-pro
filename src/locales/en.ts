@@ -799,6 +799,8 @@ export const en = {
     finishedEmpty: "No finished rankings yet. Render one from this page and it will show up here.",
     finishedLoading: "Loading the finished renders…",
     finishedDelete: "Delete this file from disk",
+    finishedDeleteAll: "Delete all",
+    finishedDeleteAllConfirm: (count: number) => `Delete ALL ${count} ranking videos from disk? The ZIP archives stay, so they can still be recovered.`,
     finishedDeleteConfirm: (name: string) => `Delete "${name}" from disk? This cannot be undone.`,
   },
   aiUsage: {

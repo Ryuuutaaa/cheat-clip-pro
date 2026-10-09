@@ -141,6 +141,19 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
       });
   };
 
+  const deleteAllRenderedFiles = () => {
+    if (!renderedFiles.length) return;
+    if (!window.confirm(t.rankPage.finishedDeleteAllConfirm(renderedFiles.length))) return;
+    fetch('/api/rendered-files?kind=ranking', { method: 'DELETE' })
+      .then(r => {
+        if (!r.ok) throw new Error(String(r.status));
+        setRenderedFiles([]);
+      })
+      .catch(() => {
+        // the list stays when the delete is refused
+      });
+  };
+
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') refreshRenderedFiles();
@@ -486,16 +499,29 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
       <section className="studio-card-group" style={{ marginTop: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem' }}>
           <div className="section-title" style={{ margin: 0 }}>{t.rankPage.finishedTitle}</div>
-          <button
-            type="button"
-            className="btn-quiet"
-            onClick={refreshRenderedFiles}
-            disabled={renderedBusy}
-            style={{ fontSize: '0.72rem', padding: '0.3rem 0.65rem' }}
-            title={t.rankPage.finishedRefresh}
-          >
-            {renderedBusy ? '…' : '🔄'} {t.rankPage.finishedRefresh}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+            <button
+              type="button"
+              className="btn-quiet"
+              onClick={refreshRenderedFiles}
+              disabled={renderedBusy}
+              style={{ fontSize: '0.72rem', padding: '0.3rem 0.65rem' }}
+              title={t.rankPage.finishedRefresh}
+            >
+              {renderedBusy ? '…' : '🔄'} {t.rankPage.finishedRefresh}
+            </button>
+            {renderedFiles.length > 0 && (
+              <button
+                type="button"
+                className="btn-quiet"
+                onClick={deleteAllRenderedFiles}
+                style={{ fontSize: '0.72rem', padding: '0.3rem 0.65rem', color: '#f87171' }}
+                title={t.rankPage.finishedDeleteAll}
+              >
+                🗑 {t.rankPage.finishedDeleteAll}
+              </button>
+            )}
+          </div>
         </div>
         {renderedFiles.length === 0 ? (
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.6rem 0 0' }}>
