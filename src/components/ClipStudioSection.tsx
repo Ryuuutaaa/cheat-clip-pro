@@ -566,7 +566,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         .sort((a, b) => b.score - a.score)
         .map(x => x.i)
     );
+    // Every per-clip setting is keyed by position, so a changed selection invalidates all of them.
     setRankLabels({});
+    setRankSecondsPerClip({});
+    setRankPreviewIdx(0);
   }, [selectedClipsKey]);
 
   const handleSuggestRankTitle = async () => {
@@ -4028,23 +4031,24 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                         </span>
                         <input
                           type="number"
-                          min={5}
+                          min={10}
                           max={60}
                           className="batch-title-input"
                           placeholder={String(rankSeconds)}
-                          title={t.studio.rankSecondsPerRank}
+                          title={rankSecondsMode === 'auto' ? t.studio.rankSecondsAutoActive : t.studio.rankSecondsPerRank}
                           aria-label={t.studio.rankSecondsPerRank}
+                          disabled={rankSecondsMode === 'auto'}
                           value={rankSecondsPerClip[clipIdx] ?? ''}
                           onChange={(e) => {
                             const v = Number(e.target.value);
                             setRankSecondsPerClip(prev => {
                               const next = { ...prev };
                               if (!v || v <= 0) delete next[clipIdx];
-                              else next[clipIdx] = Math.max(5, Math.min(60, v));
+                              else next[clipIdx] = Math.max(10, Math.min(60, v));
                               return next;
                             });
                           }}
-                          style={{ width: '52px', flexShrink: 0, textAlign: 'center' }}
+                          style={{ width: '52px', flexShrink: 0, textAlign: 'center', opacity: rankSecondsMode === 'auto' ? 0.5 : 1 }}
                         />
                         <button
                           type="button" className="copy-mini-btn has-text" disabled={position === 0}
@@ -4184,6 +4188,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 scale={rankScale}
                 labelWeight={rankWeight}
                 labelTransition={rankLabelTransition}
+                layoutPreset={streamerPreset}
                 staticCropPercent={
                   !enableFaceTracking || streamerPreset !== 'none' ? 50
                     : facecamPosition === 'left' ? 28

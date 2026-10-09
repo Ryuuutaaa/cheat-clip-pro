@@ -43,6 +43,8 @@ interface RankLivePreviewProps {
   onOffsetChange?: (x: number, y: number) => void;
   /** A fixed crop percent (0-100) when the framing is not automatic; null asks face detection. */
   staticCropPercent?: number | null;
+  /** Streamer/gaming layout preset in use; anything but "none" changes the render beyond framing. */
+  layoutPreset?: string;
 }
 
 /**
@@ -75,6 +77,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
   labelTransition = 'none',
   onOffsetChange,
   staticCropPercent = 50,
+  layoutPreset = 'none',
 }) => {
   const { t } = useLanguage();
   const directRef = useRef<HTMLVideoElement | null>(null);
@@ -495,6 +498,9 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
         </div>
 
         <div className="rank-live-overlay">
+          {layoutPreset !== 'none' && (
+            <div className="rank-live-preset-note">{t.studio.rankPresetNote}</div>
+          )}
           <div className="rank-preview-title">{title.trim() || t.studio.rankingDefault}</div>
           <div
             className={`rank-preview-list rank-live-list pos-${position}`}

@@ -1130,6 +1130,20 @@ h1, h2, h3, h4 {
   to { opacity: 1; transform: none; }
 }
 
+/* Streamer layouts change more than framing, so the preview says so instead of pretending */
+.rank-live-preset-note {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 8;
+  background: rgba(245, 158, 11, 0.9);
+  color: #1a1a1a;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 0.18rem 0.45rem;
+  border-radius: 6px;
+}
+
 .rank-live-caption {
   z-index: 7;
 }

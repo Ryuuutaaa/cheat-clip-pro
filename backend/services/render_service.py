@@ -441,7 +441,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
         _, candidate_clip, _, _ = candidate
         span = rank_window(
             candidate_clip, transcript_lines, auto_seconds,
-            float(candidate_clip.get("rank_seconds") or 0) or seconds,
+            max(RANK_MIN_SECONDS, float(candidate_clip.get("rank_seconds") or 0) or seconds),
         )
         if any(_temporal_iou(span, seen) > RANK_NMS_IOU for seen in kept_spans):
             logger.info(f"Rank NMS: dropped '{candidate_clip.get('title')}' — its window overlaps a higher-ranked moment")
@@ -489,7 +489,8 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     # would mean downloading most of the video, so that case keeps the proven per-clip sections.
     windows: List[tuple] = []
     for (src_idx, clip, label, shown_rank) in ordered:
-        sec = float(clip.get("rank_seconds") or 0) or seconds
+        # The per-rank length obeys the same ten-second floor as the general setting.
+        sec = max(RANK_MIN_SECONDS, float(clip.get("rank_seconds") or 0) or seconds)
         windows.append(rank_window(clip, transcript_lines, auto_seconds, sec))
 
     pre_source_path = None
@@ -522,7 +523,7 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
 
     for rank_pos, (src_idx, clip, label, shown_rank) in enumerate(ordered):
         # A rank can carry its own length; 0 means "use the general setting".
-        entry_seconds = float(clip.get("rank_seconds") or 0) or seconds
+        entry_seconds = max(RANK_MIN_SECONDS, float(clip.get("rank_seconds") or 0) or seconds)
         if is_batch_cancelled(batch_id):
             logger.info(f"Batch {batch_id} cancelled by the user — stopping before rank {shown_rank}")
             break
