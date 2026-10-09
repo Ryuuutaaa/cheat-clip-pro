@@ -467,6 +467,7 @@ export const en = {
     rankDurCustom: "Custom",
     rankPositionLabel: "Label position:",
     rankShowScores: "Show each clip's score next to its rank",
+    rankShowBars: "Show a duration line under each label (off by default)",
     rankAutoOrder: "Smart order (text + audio + heatmap)",
     rankAutoOrderBusy: "Computing the smart order…",
     rankAutoOrderFail: "Could not compute the smart order — keeping the virality score.",

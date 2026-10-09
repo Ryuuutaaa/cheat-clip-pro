@@ -242,6 +242,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [rankOffsetY, setRankOffsetY] = useState(0);
   const [rankScale, setRankScale] = useState(1);
   const [rankWeight, setRankWeight] = useState<'regular' | 'semibold' | 'bold' | 'heavy'>('bold');
+  const [rankShowBars, setRankShowBars] = useState(false);
   const [rankLabelsBusy, setRankLabelsBusy] = useState(false);
   const [rankOrder, setRankOrder] = useState<number[]>([]);
   const [rankAutoOrder, setRankAutoOrder] = useState(false);
@@ -1612,7 +1613,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         spacing_y: Math.round(rankSpacingY),
         scale: rankScale,
         label_weight: rankWeight,
-        max_label_chars: 30,
+        show_progress_bars: rankShowBars,
+        max_label_chars: 0,
         // Ranks are numbered 1..N with the best first, but the video plays them in countdown order so
         // the number-one moment lands last. The explicit `rank` keeps the on-screen numbers correct
         // even though the playback order is reversed.
@@ -3765,6 +3767,15 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     </button>
                   ))}
                 </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.76rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={rankShowBars}
+                    onChange={e => setRankShowBars(e.target.checked)}
+                  />
+                  {t.studio.rankShowBars}
+                </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.76rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem' }}>
                   <input

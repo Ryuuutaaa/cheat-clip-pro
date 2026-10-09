@@ -14,8 +14,9 @@ class RankHighlightModel(BaseModel):
     show_numbers: bool = True
     # Append the clip's virality score to its rank label ("3. Bald arch · 87")
     show_scores: bool = False
-    # Draw a duration line under every rank label that fills while that rank plays
-    show_progress_bars: bool = True
+    # Draw a duration line under every rank label that fills while that rank plays (off by default:
+    # a clean overlay is what most people want)
+    show_progress_bars: bool = False
     # Layout controls for the whole rank list
     max_label_chars: int = 0                 # 0 = never cut (the font auto-fits instead)
     spacing_y: int = 0                       # row gap in px (0 = the anchor default)

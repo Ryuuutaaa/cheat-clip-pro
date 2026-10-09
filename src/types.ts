@@ -124,6 +124,7 @@ export interface RenderSettings {
     spacing_y?: number;
     scale?: number;
     label_weight?: string;
+    show_progress_bars?: boolean;
     max_label_chars?: number;
     ranks: { clip_index: number; label: string; rank?: number }[];
   };

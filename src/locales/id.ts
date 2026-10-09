@@ -469,6 +469,7 @@ export const id: Translations = {
     rankDurCustom: "Kustom",
     rankPositionLabel: "Posisi label:",
     rankShowScores: "Tampilkan skor klip di samping peringkatnya",
+    rankShowBars: "Tampilkan garis durasi di bawah label (default: mati)",
     rankAutoOrder: "Urutan cerdas (teks + audio + heatmap)",
     rankAutoOrderBusy: "Menghitung urutan cerdas…",
     rankAutoOrderFail: "Gagal menghitung urutan cerdas — tetap memakai skor viralitas.",
