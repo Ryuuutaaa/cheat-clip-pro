@@ -423,16 +423,21 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
     }
   };
 
-  const ratioClass = `ratio-${(aspectRatio || '9:16').replace(':', '-')}`;
+  // The canvas is what the export produces: always the portrait frame, except true landscape.
+  // Inside it the video occupies its own ratio area, centred, with the rest left black — that is
+  // exactly how the renderer lays a 1:1 or 4:3 cut out on the 1080x1920 canvas.
+  const frameRatioClass = aspectRatio === '16:9_landscape' ? 'ratio-16-9_landscape' : 'ratio-9-16';
+  const contentRatioClass = `box-${(aspectRatio || '9:16').replace(':', '-')}`;
   const isLetterbox = aspectRatio === '16:9';
 
   return (
     <div className="rank-live-preview">
       <div
-        className={`rank-live-frame ${ratioClass}`}
+        className={`rank-live-frame ${frameRatioClass}`}
         ref={frameRef}
         style={{ ['--crop-pct' as string]: cropPercent } as React.CSSProperties}
       >
+        <div className={`rank-live-content ${contentRatioClass}`}>
         {renderedUrl && viewMode === 'rendered' ? (
           <>
             <video
@@ -481,6 +486,7 @@ export const RankLivePreview: React.FC<RankLivePreviewProps> = ({
         {playerError && !isDirect && (
           <div className="rank-live-empty">{t.studio.rankNoPreview}</div>
         )}
+        </div>
 
         <div className="rank-live-overlay">
           <div className="rank-preview-title">{title.trim() || t.studio.rankingDefault}</div>

@@ -898,17 +898,10 @@ h1, h2, h3, h4 {
 }
 
 /* The frame follows whichever output ratio is selected, so the layout is judged on the real canvas */
-.rank-preview-frame.ratio-1-1 {
-  width: 190px;
-  aspect-ratio: 1 / 1;
-}
-
-.rank-preview-frame.ratio-4-3 {
-  width: 220px;
-  aspect-ratio: 4 / 3;
-}
-
-.rank-preview-frame.ratio-16-9,
+/* The mock mirrors the render canvas: portrait for every ratio except true landscape */
+.rank-preview-frame.ratio-1-1 { width: 168px; }
+.rank-preview-frame.ratio-4-3 { width: 168px; }
+.rank-preview-frame.ratio-16-9 { width: 168px; }
 .rank-preview-frame.ratio-16-9_landscape {
   width: 268px;
   aspect-ratio: 16 / 9;
@@ -1008,10 +1001,31 @@ h1, h2, h3, h4 {
 }
 
 .rank-live-frame.ratio-9-16 { aspect-ratio: 9 / 16; }
-.rank-live-frame.ratio-1-1 { aspect-ratio: 1 / 1; }
-.rank-live-frame.ratio-4-3 { aspect-ratio: 4 / 3; }
-.rank-live-frame.ratio-16-9 { aspect-ratio: 9 / 16; }          /* 16:9 letterboxed into the portrait canvas */
 .rank-live-frame.ratio-16-9_landscape { aspect-ratio: 16 / 9; }
+
+/* The canvas the export produces: the video sits in its ratio area, centred, black around it */
+.rank-live-content {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+.rank-live-content.box-9-16,
+.rank-live-content.box-16-9_landscape {
+  top: 0;
+  bottom: 0;
+  transform: none;
+  height: 100%;
+}
+
+.rank-live-content.box-1-1 { aspect-ratio: 1 / 1; }
+.rank-live-content.box-4-3 { aspect-ratio: 4 / 3; }
+.rank-live-content.box-16-9 { aspect-ratio: 16 / 9; }
 
 /* The YouTube API replaces its target element with an iframe, so the crop must live on the iframe
    itself — the same approach the clip page's preview uses, which is known to work. The iframe must

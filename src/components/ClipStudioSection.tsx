@@ -432,9 +432,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     : (currentPreviewClip ? currentPreviewClip.end_time : 60);
   const clipDuration = Math.max(1, clipEnd - clipStart);
 
-  // The card's mock is a scaled-down copy of the 1080-wide canvas, so layout settings render there too.
-  const mockW = aspectRatio === '1:1' ? 190 : aspectRatio === '4:3' ? 220
-    : (aspectRatio === '16:9' || aspectRatio === '16:9_landscape') ? 268 : 168;
+  // The card's mock is a scaled-down copy of the canvas (portrait except true landscape).
+  const mockW = aspectRatio === '16:9_landscape' ? 268 : 168;
   const mockPx = (v: number) => v * (mockW / 1080);
   const rankWeightFont: Record<string, number> = { regular: 500, semibold: 600, bold: 700, heavy: 900 };
 
