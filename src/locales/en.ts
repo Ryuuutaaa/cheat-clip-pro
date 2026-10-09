@@ -463,6 +463,7 @@ export const en = {
     rankCountLabel: "Ranks:",
     rankSecondsLabel: "Seconds each:",
     rankSecondsPerRank: "Seconds just for this rank (empty = use the general setting)",
+    rankCharCount: "Label character count (max 30; long labels shrink automatically)",
     rankDurAuto: "Auto (follow the sentence)",
     rankDurFive: "10s",
     rankDurCustom: "Custom",

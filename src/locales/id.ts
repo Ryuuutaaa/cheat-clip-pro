@@ -465,6 +465,7 @@ export const id: Translations = {
     rankCountLabel: "Jumlah peringkat:",
     rankSecondsLabel: "Detik per klip:",
     rankSecondsPerRank: "Detik khusus untuk peringkat ini (kosong = ikut setelan umum)",
+    rankCharCount: "Jumlah karakter label (maks 30; label panjang dikecilkan otomatis)",
     rankDurAuto: "Auto (ikut batas kalimat)",
     rankDurFive: "10 dtk",
     rankDurCustom: "Kustom",

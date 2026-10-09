@@ -3,6 +3,7 @@ import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
 import { buildTimedWords, buildWordChunks, getCaptionAt, CAPTION_HIGHLIGHT_CLASS } from '../utils/wordTiming';
 import { copyToClipboard } from '../utils/clipboard';
+import { safeStorage } from '../utils/storage';
 import { RankLivePreview } from './RankLivePreview';
 import type {
   ViralClip,
@@ -642,6 +643,41 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       setRankLabelsBusy(false);
     }
   };
+
+  // Rank layout survives reloads: these are global preferences, not per-clip data, so they live in
+  // storage and are reapplied the next time the rank card mounts.
+  const RANK_LAYOUT_KEY = 'cheat_clip_rank_layout_v1';
+  useEffect(() => {
+    try {
+      const raw = safeStorage.get(RANK_LAYOUT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (typeof d.offsetX === 'number') setRankOffsetX(d.offsetX);
+      if (typeof d.offsetY === 'number') setRankOffsetY(d.offsetY);
+      if (typeof d.spacingY === 'number') setRankSpacingY(d.spacingY);
+      if (typeof d.scale === 'number') setRankScale(d.scale);
+      if (typeof d.weight === 'string') setRankWeight(d.weight);
+      if (typeof d.position === 'string') setRankPosition(d.position);
+      if (typeof d.showScores === 'string') setRankShowScores(d.showScores);
+      if (typeof d.showBars === 'boolean') setRankShowBars(d.showBars);
+    } catch {
+      // a corrupt entry should never stop the card from rendering
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    safeStorage.set(RANK_LAYOUT_KEY, JSON.stringify({
+      offsetX: rankOffsetX,
+      offsetY: rankOffsetY,
+      spacingY: rankSpacingY,
+      scale: rankScale,
+      weight: rankWeight,
+      position: rankPosition,
+      showScores: rankShowScores,
+      showBars: rankShowBars,
+    }));
+  }, [rankOffsetX, rankOffsetY, rankSpacingY, rankScale, rankWeight, rankPosition, rankShowScores, rankShowBars]);
 
   // Which rank's clip is playing in the rank preview, and how to play it for this source type.
   const rankPreviewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -3928,6 +3964,15 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           onChange={(e) => setRankLabels(prev => ({ ...prev, [clipIdx]: e.target.value }))}
                           style={{ flex: 1 }}
                         />
+                        <span
+                          style={{
+                            fontSize: '0.62rem', flexShrink: 0, fontVariantNumeric: 'tabular-nums',
+                            color: (rankLabels[clipIdx] ?? '').length > 26 ? '#f59e0b' : 'var(--text-muted)',
+                          }}
+                          title={t.studio.rankCharCount}
+                        >
+                          {(rankLabels[clipIdx] ?? '').length}/30
+                        </span>
                         <input
                           type="number"
                           min={5}

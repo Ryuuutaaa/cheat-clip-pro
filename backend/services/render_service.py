@@ -45,6 +45,10 @@ def is_batch_cancelled(batch_id: str) -> bool:
 # an accepted rank by more than this is dropped, the usual threshold for temporal NMS.
 RANK_NMS_IOU = 0.3
 
+# When every rank fits inside this span, a remote video is fetched once and sliced locally instead
+# of pulling one section per rank.
+RANK_SINGLE_DOWNLOAD_MAX_SPAN = 480.0
+
 from backend.utils.rank_signals import (  # noqa: E402
     RANK_AUTO_FALLBACK_SECONDS,
     RANK_AUTO_MAX_SECONDS,
@@ -469,21 +473,69 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     rendered: List[str] = []
     segments: List[Dict[str, Any]] = []
     elapsed = 0.0
+
+    # Windows are decided up front so a remote source can be fetched in ONE piece instead of one
+    # section per rank: five yt-dlp calls are slow and invite bot checks, while a single download of
+    # the covered span plus local slicing is both faster and quieter. Ranks spread too far apart
+    # would mean downloading most of the video, so that case keeps the proven per-clip sections.
+    windows: List[tuple] = []
+    for (src_idx, clip, label, shown_rank) in ordered:
+        sec = float(clip.get("rank_seconds") or 0) or seconds
+        windows.append(rank_window(clip, transcript_lines, auto_seconds, sec))
+
+    pre_source_path = None
+    span_offset = 0.0
+    is_remote = not (str(target_url).startswith("/api/video/") or os.path.exists(str(target_url)))
+    if is_remote and windows:
+        span_start = min(w[0] for w in windows)
+        span_end = max(w[1] for w in windows)
+        span_seconds = span_end - span_start
+        if span_seconds <= RANK_SINGLE_DOWNLOAD_MAX_SPAN:
+            try:
+                logger.info(
+                    f"Ranking: fetching the whole covered span once ({span_seconds:.0f}s) instead of "
+                    f"{len(windows)} separate sections"
+                )
+                pre_source_path = await asyncio.to_thread(
+                    download_clip_segment,
+                    target_url, span_start, span_end, f"{batch_id}_rank_source.mp4",
+                )
+                span_offset = span_start
+            except Exception as e:
+                logger.warning(f"Single-span download failed, falling back to per-clip sections: {e}")
+                pre_source_path = None
+                span_offset = 0.0
+        else:
+            logger.info(
+                f"Ranking: ranks span {span_seconds:.0f}s (limit {RANK_SINGLE_DOWNLOAD_MAX_SPAN}s), "
+                "keeping one section per rank"
+            )
+
     for rank_pos, (src_idx, clip, label, shown_rank) in enumerate(ordered):
         # A rank can carry its own length; 0 means "use the general setting".
         entry_seconds = float(clip.get("rank_seconds") or 0) or seconds
         if is_batch_cancelled(batch_id):
             logger.info(f"Batch {batch_id} cancelled by the user — stopping before rank {shown_rank}")
             break
-        begin, finish = rank_window(clip, transcript_lines, auto_seconds, entry_seconds)
+        begin, finish = windows[rank_pos] if rank_pos < len(windows) else rank_window(
+            clip, transcript_lines, auto_seconds, entry_seconds
+        )
+        part_target = target_url
+        if pre_source_path and span_offset:
+            # Times are relative to the pre-fetched span now.
+            begin -= span_offset
+            finish -= span_offset
+            part_target = pre_source_path
 
         trimmed = dict(clip)
         trimmed["start_time"] = begin
         trimmed["end_time"] = finish
+        if span_offset and isinstance(trimmed.get("hook_time"), (int, float)):
+            trimmed["hook_time"] = max(0.0, float(trimmed["hook_time"]) - span_offset)
 
         await render_single_batch_clip(
             batch_id=batch_id, idx=src_idx, clip=trimmed, settings=clip_settings,
-            target_url=target_url, transcript=transcript, total_clips=len(ordered),
+            target_url=part_target, transcript=transcript, total_clips=len(ordered),
         )
 
         entries = batch.get("clips") or []
@@ -545,6 +597,13 @@ async def _render_rank_highlight(batch_id: str, clips, settings, rank_settings, 
     out_name = f"ranking_{batch_id}.mp4"
     out_path = str(EXPORTS_DIR / out_name)
     merge_rank_highlight(rendered, ass_path, out_path)
+
+    # The pre-fetched span has done its job once the parts are joined.
+    if pre_source_path:
+        try:
+            os.remove(pre_source_path)
+        except Exception:
+            pass
 
     # The ranked clips existed only to be joined; keeping them would leave six extra files next to a
     # single deliverable, so they go and nothing can offer them for download afterwards.
