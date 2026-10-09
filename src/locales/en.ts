@@ -781,6 +781,10 @@ export const en = {
     savedUse: "Use →",
     savedDelete: "Delete this analysis",
     savedClips: (count: number) => `${count} clips`,
+    finishedTitle: "📁 Finished rankings (saved on disk)",
+    finishedRefresh: "Reload the list",
+    finishedEmpty: "No finished rankings yet. Render one from this page and it will show up here.",
+    finishedLoading: "Loading the finished renders…",
   },
   aiUsage: {
     btn: "AI Usage",

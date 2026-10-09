@@ -111,6 +111,32 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
   const [isRendering, setIsRendering] = useState(false);
   const [saved, setSaved] = useState<SavedAnalysis[]>([]);
   const [savedOpen, setSavedOpen] = useState(false);
+  const [renderedFiles, setRenderedFiles] = useState<Array<{ name: string; size: number; modified: number; is_ranking: boolean; download_url: string }>>([]);
+  const [renderedBusy, setRenderedBusy] = useState(false);
+
+  const refreshRenderedFiles = () => {
+    setRenderedBusy(true);
+    fetch('/api/rendered-files?kind=ranking&limit=12')
+      .then(r => r.json())
+      .then(d => setRenderedFiles(Array.isArray(d.files) ? d.files : []))
+      .catch(() => {
+        // the list is a convenience; a failure just leaves it empty
+      })
+      .finally(() => setRenderedBusy(false));
+  };
+
+  useEffect(() => {
+    refreshRenderedFiles();
+  }, []);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshRenderedFiles();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setSaved(readSavedAnalyses());
@@ -440,6 +466,49 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
         {error && (
           <div style={{ marginTop: '0.8rem', padding: '0.6rem 0.8rem', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171', fontSize: '0.8rem' }}>
             {error}
+          </div>
+        )}
+      </section>
+
+      {/* Finished rankings sit on disk, so they are always downloadable — even after a reload. */}
+      <section className="studio-card-group" style={{ marginTop: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem' }}>
+          <div className="section-title" style={{ margin: 0 }}>{t.rankPage.finishedTitle}</div>
+          <button
+            type="button"
+            className="btn-quiet"
+            onClick={refreshRenderedFiles}
+            disabled={renderedBusy}
+            style={{ fontSize: '0.72rem', padding: '0.3rem 0.65rem' }}
+            title={t.rankPage.finishedRefresh}
+          >
+            {renderedBusy ? '…' : '🔄'} {t.rankPage.finishedRefresh}
+          </button>
+        </div>
+        {renderedFiles.length === 0 ? (
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.6rem 0 0' }}>
+            {renderedBusy ? t.rankPage.finishedLoading : t.rankPage.finishedEmpty}
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.6rem' }}>
+            {renderedFiles.map(f => (
+              <div
+                key={f.name}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  padding: '0.45rem 0.65rem', borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)',
+                }}
+              >
+                <span style={{ fontSize: '0.75rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                  🏆 {f.name.replace(/^ranking_batch_/, '')}
+                </span>
+                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                  {new Date(f.modified * 1000).toLocaleDateString()} · {(f.size / 1e6).toFixed(1)}MB
+                </span>
+                <a href={f.download_url} download className="quick-dl-btn" style={{ flexShrink: 0 }}>⬇️ MP4</a>
+              </div>
+            ))}
           </div>
         )}
       </section>

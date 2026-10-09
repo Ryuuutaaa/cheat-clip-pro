@@ -783,6 +783,10 @@ export const id: Translations = {
     savedUse: "Pakai →",
     savedDelete: "Hapus analisis ini",
     savedClips: (count: number) => `${count} klip`,
+    finishedTitle: "📁 Hasil render ranking (tersimpan)",
+    finishedRefresh: "Muat ulang daftar",
+    finishedEmpty: "Belum ada hasil render ranking. Render satu dari halaman ini, hasilnya akan muncul di sini.",
+    finishedLoading: "Memuat daftar hasil render…",
   },
   aiUsage: {
     btn: "Penggunaan AI",
