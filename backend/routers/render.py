@@ -293,7 +293,10 @@ def delete_all_rendered_files(request: Request, kind: Optional[str] = "ranking",
         except OSError:
             failed.append(entry.name)
 
-    logger.info(f"Deleted {len(deleted)} rendered files (kind={kind}), {len(failed)} failed")
+    logger.info(
+        f"Deleted {len(deleted)} rendered files (kind={kind}), {len(failed)} failed "
+        f"(client {request.client.host if request.client else 'unknown'})"
+    )
     return {"deleted": deleted, "failed": failed}
 
 
@@ -313,7 +316,8 @@ def delete_rendered_file(file_name: str, request: Request):
         file_path.unlink()
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Could not delete the file: {str(e)[:150]}")
-    logger.info(f"Deleted rendered file {safe_name}")
+    # Leave a trail: if a render ever disappears unexpectedly, the log says who asked for it.
+    logger.info(f"Deleted rendered file {safe_name} (client {request.client.host if request.client else 'unknown'})")
     return {"deleted": safe_name}
 
 
