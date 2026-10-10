@@ -501,6 +501,8 @@ export const id: Translations = {
     rankRenderedBadge: "✓ HASIL RENDER",
     rankPresetNote: "Preset layout aktif — pratinjau ini hanya menunjukkan framing",
     spoilerBadgeShort: "spoiler",
+    spoilerPhaseLabel: "Spoiler",
+    clipPhaseLabel: "Klip",
     spoilerBadgeTitle: (seconds: number) =>
       `Tiap klip diawali ${seconds} dtk spoiler dari momen hook; pratinjau ini menunjukkan klip aslinya.`,
     rankWord: "Peringkat",

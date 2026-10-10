@@ -435,6 +435,35 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     : (currentPreviewClip ? currentPreviewClip.end_time : 60);
   const clipDuration = Math.max(1, clipEnd - clipStart);
 
+  // Spoiler hook in the preview: the clip is preceded by a glimpse of its own hook, exactly like the
+  // renderer does it. Clip page only — the rank page runs its own sequence with its own component.
+  const previewSpoiler = (() => {
+    if (rankMode || !spoilerSeconds || spoilerSeconds <= 0 || !currentPreviewClip || rankPreviewWindow) return null;
+    const cStart = currentPreviewClip.start_time;
+    const cEnd = currentPreviewClip.end_time;
+    const len = Math.max(1, Math.min(6, spoilerSeconds));
+    if (cEnd - cStart <= len + 0.5) return null;
+    const hook = currentPreviewClip.hook_time;
+    const start = (typeof hook === 'number' && hook > cStart + 0.2 && hook < cEnd - 0.5)
+      ? Math.min(hook, Math.max(cStart, cEnd - len))
+      : cStart + Math.max(0, (cEnd - cStart - len) / 2);
+    return { start, end: Math.min(cEnd, start + len) };
+  })();
+  const [previewPhase, setPreviewPhase] = useState<'spoiler' | 'clip'>('clip');
+  const inSpoilerPhase = Boolean(previewSpoiler) && previewPhase === 'spoiler';
+  const phaseStart = inSpoilerPhase && previewSpoiler ? previewSpoiler.start : clipStart;
+  const phaseEnd = inSpoilerPhase && previewSpoiler ? previewSpoiler.end : clipEnd;
+  // The tracking interval outlives a render, so it reads the phase from refs instead of a closure.
+  const previewPhaseRef = useRef<'spoiler' | 'clip'>('clip');
+  const previewSpoilerRef = useRef<{ start: number; end: number } | null>(null);
+  useEffect(() => { previewPhaseRef.current = previewPhase; }, [previewPhase]);
+  useEffect(() => { previewSpoilerRef.current = previewSpoiler; }, [previewSpoiler]);
+  // A different clip (or a changed spoiler length) always starts with the spoiler again.
+  useEffect(() => {
+    setPreviewPhase(previewSpoiler ? 'spoiler' : 'clip');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewClipSourceIndex, spoilerSeconds]);
+
   // The card's mock is a scaled-down copy of the canvas (portrait except true landscape).
   const mockW = aspectRatio === '16:9_landscape' ? 268 : 168;
   const mockPx = (v: number) => v * (mockW / 1080);
@@ -824,7 +853,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     const isDirect = Boolean(videoUrl && (videoUrl.endsWith('.mp4') || videoUrl.endsWith('.webm') || videoUrl.endsWith('.mov') || videoUrl.endsWith('.mkv') || videoUrl.includes('/api/video') || videoUrl.startsWith('blob:') || videoId?.startsWith('upload_') || videoId?.startsWith('gdrive_')));
     if (isDirect) {
       setPlayerReady(true);
-      setCurrentTime(clipStart);
+      setCurrentTime(phaseStart);
       return;
     }
 
@@ -870,8 +899,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   event.target.unloadModule('captions');
                   event.target.unloadModule('cc');
                 }
-                event.target.seekTo(clipStart, true);
-                setCurrentTime(clipStart);
+                event.target.seekTo(phaseStart, true);
+                setCurrentTime(phaseStart);
               } catch (e) {}
             },
             onStateChange: (event: any) => {
@@ -884,7 +913,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 stopTracking();
                 if (event.data === 0 && isLooping && currentPreviewClip) {
                   try {
-                    previewPlayerRef.current.seekTo(clipStart, true);
+                    setPreviewPhase(previewSpoilerRef.current ? 'spoiler' : 'clip');
+                    previewPlayerRef.current.seekTo(previewSpoilerRef.current ? previewSpoilerRef.current.start : clipStart, true);
                     previewPlayerRef.current.playVideo();
                   } catch (e) {}
                 }
@@ -915,9 +945,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             const t = previewPlayerRef.current.getCurrentTime();
             if (typeof t === 'number' && !isNaN(t)) {
               setCurrentTime(t);
-              if (t >= clipEnd) {
+              const spoiler = previewSpoilerRef.current;
+              if (spoiler && previewPhaseRef.current === 'spoiler') {
+                // The glimpse is over: the seek effect moves the player onto the clip itself.
+                if (t >= spoiler.end) setPreviewPhase('clip');
+              } else if (t >= clipEnd) {
                 if (isLooping) {
-                  previewPlayerRef.current.seekTo(clipStart, true);
+                  if (spoiler) setPreviewPhase('spoiler');
+                  else previewPlayerRef.current.seekTo(clipStart, true);
                 } else {
                   previewPlayerRef.current.pauseVideo();
                 }
@@ -931,10 +966,16 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             if (ambientVideoRef.current && Math.abs(ambientVideoRef.current.currentTime - t) > 0.3) {
               ambientVideoRef.current.currentTime = t;
             }
-            if (t >= clipEnd) {
+            const spoilerRef = previewSpoilerRef.current;
+            if (spoilerRef && previewPhaseRef.current === 'spoiler') {
+              if (t >= spoilerRef.end) setPreviewPhase('clip');
+            } else if (t >= clipEnd) {
               if (isLooping) {
-                directVideoRef.current.currentTime = clipStart;
-                if (ambientVideoRef.current) ambientVideoRef.current.currentTime = clipStart;
+                if (spoilerRef) setPreviewPhase('spoiler');
+                else {
+                  directVideoRef.current.currentTime = clipStart;
+                  if (ambientVideoRef.current) ambientVideoRef.current.currentTime = clipStart;
+                }
               } else {
                 directVideoRef.current.pause();
                 if (ambientVideoRef.current) ambientVideoRef.current.pause();
@@ -968,19 +1009,19 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     };
   }, [videoId, previewClipSourceIndex]);
 
-  // When previewClipIndex changes, seek player to new clip start
+  // When the clip or the phase changes, seek the player to that phase's own start
   useEffect(() => {
     if (rankMode) return;   // the rank sequence player owns timing here
-    setCurrentTime(clipStart);
+    setCurrentTime(phaseStart);
     if (previewPlayerRef.current && typeof previewPlayerRef.current.seekTo === 'function') {
       try {
-        previewPlayerRef.current.seekTo(clipStart, true);
+        previewPlayerRef.current.seekTo(phaseStart, true);
       } catch (e) {}
     } else if (directVideoRef.current) {
-      directVideoRef.current.currentTime = clipStart;
-      if (ambientVideoRef.current) ambientVideoRef.current.currentTime = clipStart;
+      directVideoRef.current.currentTime = phaseStart;
+      if (ambientVideoRef.current) ambientVideoRef.current.currentTime = phaseStart;
     }
-  }, [previewClipSourceIndex, clipStart]);
+  }, [previewClipSourceIndex, phaseStart]);
 
   const togglePlayPause = () => {
     if (previewPlayerRef.current) {
@@ -988,8 +1029,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         if (isPlaying) {
           previewPlayerRef.current.pauseVideo();
         } else {
-          if (currentTime >= clipEnd || currentTime < clipStart) {
-            previewPlayerRef.current.seekTo(clipStart, true);
+          if (currentTime >= phaseEnd || currentTime < phaseStart) {
+            previewPlayerRef.current.seekTo(phaseStart, true);
           }
           previewPlayerRef.current.playVideo();
         }
@@ -1000,9 +1041,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
         if (ambientVideoRef.current) ambientVideoRef.current.pause();
         setIsPlaying(false);
       } else {
-        if (currentTime >= clipEnd || currentTime < clipStart) {
-          directVideoRef.current.currentTime = clipStart;
-          if (ambientVideoRef.current) ambientVideoRef.current.currentTime = clipStart;
+        if (currentTime >= phaseEnd || currentTime < phaseStart) {
+          directVideoRef.current.currentTime = phaseStart;
+          if (ambientVideoRef.current) ambientVideoRef.current.currentTime = phaseStart;
         }
         directVideoRef.current.play();
         if (ambientVideoRef.current) ambientVideoRef.current.play().catch(() => {});
@@ -4158,15 +4199,17 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   style={{
                     fontSize: '0.68rem',
                     fontWeight: 700,
-                    color: '#f59e0b',
-                    background: 'rgba(245, 158, 11, 0.14)',
-                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    color: previewSpoiler && previewPhase === 'spoiler' ? '#f59e0b' : '#38bdf8',
+                    background: previewSpoiler && previewPhase === 'spoiler' ? 'rgba(245, 158, 11, 0.14)' : 'rgba(56, 189, 248, 0.12)',
+                    border: previewSpoiler && previewPhase === 'spoiler' ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid rgba(56, 189, 248, 0.3)',
                     padding: '0.15rem 0.45rem',
                     borderRadius: '6px',
                   }}
                   title={t.studio.spoilerBadgeTitle(spoilerSeconds)}
                 >
-                  ⏱ +{spoilerSeconds}s {t.studio.spoilerBadgeShort}
+                  {previewSpoiler && previewPhase === 'spoiler'
+                    ? `⏱ ${t.studio.spoilerPhaseLabel} ${spoilerSeconds}s`
+                    : `▶ ${t.studio.clipPhaseLabel} +${spoilerSeconds}s`}
                 </span>
               )}
               <span

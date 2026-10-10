@@ -499,6 +499,8 @@ export const en = {
     rankRenderedBadge: "✓ RENDERED RESULT",
     rankPresetNote: "Layout preset active — this preview only shows the framing",
     spoilerBadgeShort: "spoiler",
+    spoilerPhaseLabel: "Spoiler",
+    clipPhaseLabel: "Clip",
     spoilerBadgeTitle: (seconds: number) =>
       `Every clip starts with a ${seconds}s spoiler from its hook moment; this preview shows the clip itself.`,
     rankWord: "Rank",
