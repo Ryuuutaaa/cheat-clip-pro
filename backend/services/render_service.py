@@ -66,6 +66,140 @@ def _temporal_iou(a: tuple, b: tuple) -> float:
     return inter / union if union > 0 else 0.0
 
 
+async def _build_spoiler_teaser(
+    batch_id: str,
+    idx: int,
+    settings: RenderSettingsModel,
+    clip: Dict[str, Any],
+    raw_path: str,
+    start_t: float,
+    end_t: float,
+    transcript,
+) -> Optional[str]:
+    """Renders the teaser that opens a clip: a glimpse of that clip's own hook moment.
+
+    The hook always sits inside the clip, so the teaser is cut from the raw slice already on disk —
+    no extra download — and it is rendered with the same settings so both parts concatenate cleanly.
+    """
+    teaser_len = max(1.0, min(6.0, float(getattr(settings, "spoiler_seconds", 3.0) or 3.0)))
+    if end_t - start_t <= teaser_len + 0.5:
+        logger.info(f"Spoiler skipped for clip {idx}: the clip is not longer than the teaser")
+        return None
+
+    hook = clip.get("hook_time")
+    if isinstance(hook, (int, float)) and start_t + 0.2 < float(hook) < end_t - 0.5:
+        t_start = min(float(hook), max(start_t, end_t - teaser_len))
+    else:
+        # No usable hook: take the middle so it still reads as a glimpse, never as a repeat of the start.
+        t_start = start_t + max(0.0, (end_t - start_t - teaser_len) / 2.0)
+    t_end = min(end_t, t_start + teaser_len)
+    length = t_end - t_start
+    if length < 1.0:
+        return None
+
+    teaser_raw = await asyncio.to_thread(
+        download_clip_segment,
+        raw_path, t_start - start_t, t_end - start_t,
+        f"{batch_id}_clip_{idx}_teaser_raw.mp4",
+    )
+    if not teaser_raw or not os.path.exists(teaser_raw):
+        return None
+
+    ass_path = ""
+    if settings.caption_style != "none":
+        try:
+            teaser_words = await asyncio.to_thread(
+                transcribe_clip_words, teaser_raw, transcript, t_start, t_end
+            )
+            ass_path = str(TEMP_DIR / f"{batch_id}_clip_{idx}_teaser.ass")
+            await asyncio.to_thread(
+                generate_ass_file,
+                words=teaser_words,
+                style_preset=settings.caption_style,
+                font_name=settings.caption_font,
+                output_ass_path=ass_path,
+                target_aspect_ratio=settings.aspect_ratio,
+                font_size_preset=settings.font_size,
+                text_case=settings.text_case,
+                title_text=None,
+                title_position="none",
+                title_duration="entire",
+                duration_seconds=length,
+                title_y_percent=settings.title_y_percent,
+                subtitle_y_percent=settings.subtitle_y_percent,
+                subtitle_position_mode=settings.subtitle_position_mode if settings.subtitle_position_mode else "bottom",
+                subtitle_center_y_percent=settings.subtitle_center_y_percent if settings.subtitle_center_y_percent is not None else 50.0,
+                skip_title=True,
+                title_font_size_preset=settings.title_font_size or settings.font_size or "medium",
+                streamer_preset=settings.streamer_preset or "none",
+                subtitle_offset=float(settings.subtitle_offset_sec or 0.0),
+            )
+        except Exception as e:
+            logger.warning(f"Spoiler teaser subtitles failed for clip {idx}: {e}")
+            ass_path = ""
+
+    # An optional badge so the glimpse reads as a deliberate spoiler rather than a glitch.
+    if getattr(settings, "spoiler_label", False) and ass_path and os.path.exists(ass_path):
+        try:
+            with open(ass_path, "a", encoding="utf-8") as fh:
+                fh.write(
+                    f"Dialogue: 0,0:00:00.00,0:00:{length:05.2f},TitleStyle,,0,0,0,,"
+                    f"{{\\an8\\pos(540,150)\\fs44\\fad(200,200)}}SPOILER\n"
+                )
+        except Exception:
+            pass
+
+    transition = (getattr(settings, "spoiler_transition", "hard") or "hard").lower()
+    teaser_fade = None
+    if transition in ("fade_black", "fade_white"):
+        teaser_fade = f"out:{'white' if transition == 'fade_white' else 'black'}:0.3"
+
+    teaser_out = str(TEMP_DIR / f"{batch_id}_clip_{idx}_teaser.mp4")
+    await asyncio.to_thread(
+        render_clip_to_mp4,
+        video_path=teaser_raw,
+        output_mp4_path=teaser_out,
+        aspect_ratio=settings.aspect_ratio,
+        background_style=settings.background_style,
+        enable_face_tracking=settings.enable_face_tracking,
+        streamer_preset=settings.streamer_preset,
+        facecam_position=getattr(settings, "facecam_position", "auto") or "auto",
+        title_text=None,
+        title_position="none",
+        ass_subtitles_path=ass_path,
+        clip_duration=length,
+        title_overlay_path=None,
+        title_duration="entire",
+        watermark_enabled=bool(settings.watermark_enabled),
+        watermark_type=settings.watermark_type or "image",
+        watermark_image_path=settings.watermark_file_path,
+        watermark_text=settings.watermark_text,
+        watermark_size=float(settings.watermark_size if settings.watermark_size is not None else 20.0),
+        watermark_opacity=float((settings.watermark_opacity if settings.watermark_opacity is not None else 80.0) / 100.0),
+        watermark_x_percent=float(settings.watermark_x if settings.watermark_x is not None else 90.0),
+        watermark_y_percent=float(settings.watermark_y if settings.watermark_y is not None else 8.0),
+        bgm_enabled=bool(settings.bgm_enabled),
+        bgm_path=settings.bgm_file_path,
+        bgm_volume=float((settings.bgm_volume if settings.bgm_volume is not None else 25.0) / 100.0),
+        bgm_start_offset=float(settings.bgm_start_offset or 0.0),
+        # A glimpse, not the hook moment itself: no title sting and no second hook hit here.
+        hook_sfx_enabled=False,
+        hook_sfx_path=None,
+        hook_sfx_volume=0.0,
+        original_audio_volume=float((settings.original_audio_volume if settings.original_audio_volume is not None else 100.0) / 100.0),
+        hardware_accel=settings.hardware_accel or "auto",
+        fade_in_out=teaser_fade,
+        title_y_percent=settings.title_y_percent,
+    )
+    if not os.path.exists(teaser_out) or not is_valid_mp4(teaser_out):
+        raise RuntimeError("teaser render produced no usable file")
+    logger.info(
+        f"Spoiler teaser for clip {idx}: {length:.1f}s taken at {t_start:.1f}s "
+        f"({'hook' if isinstance(hook, (int, float)) else 'middle'})"
+    )
+    return teaser_out
+
+
 async def render_single_batch_clip(
     batch_id: str,
     idx: int,
@@ -209,6 +343,28 @@ async def render_single_batch_clip(
         out_filename = f"clip_{idx+1}_{batch_id}.mp4"
         out_path = str(EXPORTS_DIR / out_filename)
 
+        # Spoiler hook: the teaser is rendered first, then the clip follows it. The two are joined
+        # afterwards, which keeps the clip's own subtitle timings untouched.
+        spoiler_part = None
+        spoiler_colour = None
+        if getattr(settings, "spoiler_enabled", False):
+            try:
+                spoiler_part = await _build_spoiler_teaser(
+                    batch_id, idx, settings, clip, raw_path, start_t, end_t, transcript
+                )
+                transition = (getattr(settings, "spoiler_transition", "hard") or "hard").lower()
+                if spoiler_part and transition in ("fade_black", "fade_white"):
+                    spoiler_colour = "white" if transition == "fade_white" else "black"
+            except Exception as e:
+                logger.warning(f"Spoiler teaser skipped for clip {idx}: {e}")
+                spoiler_part = None
+
+        if spoiler_colour:
+            # The main clip fades in from the same colour the teaser faded out into.
+            main_fade = f"in:{spoiler_colour}:0.3"
+        else:
+            main_fade = getattr(settings, "fade_in_out", None)
+
         await asyncio.to_thread(
             render_clip_to_mp4,
             video_path=raw_path,
@@ -241,12 +397,35 @@ async def render_single_batch_clip(
             hook_sfx_volume=float((settings.hook_sfx_volume if settings.hook_sfx_volume is not None else 100.0) / 100.0),
             original_audio_volume=float((settings.original_audio_volume if settings.original_audio_volume is not None else 100.0) / 100.0),
             hardware_accel=settings.hardware_accel or "auto",
-            fade_in_out=getattr(settings, "fade_in_out", None),
+            fade_in_out=main_fade,
             title_y_percent=settings.title_y_percent
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
             raise RuntimeError("Rendered MP4 file is incomplete or missing. Please retry rendering.")
+
+        # Join the teaser in front of the clip: same renderer, same parameters, so the concat is a
+        # plain join and the clip's subtitles keep their own timing.
+        if spoiler_part and os.path.exists(spoiler_part):
+            try:
+                merged_path = f"{out_path}.spoiler.mp4"
+                await asyncio.to_thread(merge_rank_highlight, [spoiler_part, out_path], "", merged_path)
+                if os.path.exists(merged_path) and is_valid_mp4(merged_path):
+                    os.replace(merged_path, out_path)
+                    logger.info(f"Spoiler hook prepended to clip {idx + 1} ({out_filename})")
+                else:
+                    logger.warning(f"Spoiler merge produced no usable file for clip {idx}; keeping the clip alone")
+            except Exception as e:
+                logger.warning(f"Spoiler merge failed for clip {idx}, keeping the clip alone: {e}")
+            finally:
+                for _part in (spoiler_part, spoiler_part.replace("_teaser.mp4", "_teaser_raw.mp4"),
+                              spoiler_part.replace("_teaser.mp4", "_teaser.ass")):
+                    if _part and os.path.exists(_part):
+                        try:
+                            os.remove(_part)
+                        except Exception:
+                            pass
+            clip_status["length_seconds"] = round(duration_sec + float(getattr(settings, "spoiler_seconds", 3.0) or 3.0), 1)
 
         clip_status["status"] = "completed"
         clip_status["progress_percent"] = 100

@@ -229,6 +229,17 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [viralityFilter, setViralityFilter] = useState<'all' | 'high' | 'medium' | 'marked'>('all');
   const [sortBy, setSortBy] = useState<'virality' | 'time' | 'duration' | 'marked'>('virality');
+  // Spoiler hook: a teaser cut from the clip's own hook moment, prepended to every clip.
+  const [spoilerOn, setSpoilerOn] = useState<boolean>(() => localStorage.getItem('cheat_clip_spoiler_on') === '1');
+  const [spoilerSeconds, setSpoilerSeconds] = useState<number>(() => {
+    const raw = Number(localStorage.getItem('cheat_clip_spoiler_seconds'));
+    return raw >= 1 && raw <= 6 ? raw : 3;
+  });
+  const [spoilerTransition, setSpoilerTransition] = useState<'hard' | 'fade_black' | 'fade_white'>(() => {
+    const raw = localStorage.getItem('cheat_clip_spoiler_transition');
+    return raw === 'fade_black' || raw === 'fade_white' ? raw : 'hard';
+  });
+  const [spoilerLabel, setSpoilerLabel] = useState<boolean>(() => localStorage.getItem('cheat_clip_spoiler_label') === '1');
 
   // Assistance feature: Checklist for marked clips
   const [markedClips, setMarkedClips] = useState<Record<string, boolean>>({});
@@ -328,6 +339,10 @@ export default function App() {
           video_id: result.video_id,
           clips: settings.selectedClips,
           settings: {
+            spoiler_enabled: spoilerOn,
+            spoiler_seconds: spoilerSeconds,
+            spoiler_label: spoilerLabel,
+            spoiler_transition: spoilerTransition,
             aspect_ratio: settings.aspectRatio,
             background_style: settings.backgroundStyle,
             enable_face_tracking: settings.enableFaceTracking,
@@ -2905,6 +2920,82 @@ Transcript:
                 )}
               </div>
 
+              {/* Spoiler Hook: every clip opens with a glimpse of its own best moment */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={spoilerOn}
+                    disabled={loading}
+                    onChange={e => {
+                      setSpoilerOn(e.target.checked);
+                      localStorage.setItem('cheat_clip_spoiler_on', e.target.checked ? '1' : '0');
+                    }}
+                  />
+                  {t.form.spoilerEnable}
+                </label>
+                {spoilerOn && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center', paddingLeft: '1.5rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      {t.form.spoilerLengthLabel}
+                      <input
+                        type="number"
+                        min={1}
+                        max={6}
+                        value={spoilerSeconds}
+                        disabled={loading}
+                        onChange={e => {
+                          const v = Math.max(1, Math.min(6, Number(e.target.value) || 3));
+                          setSpoilerSeconds(v);
+                          localStorage.setItem('cheat_clip_spoiler_seconds', String(v));
+                        }}
+                        className="batch-title-input"
+                        style={{ width: '52px', padding: '0.2rem 0.4rem', textAlign: 'center' }}
+                      />
+                      {t.form.spoilerSecondsUnit}
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.3rem' }}>
+                      {([
+                        ['hard', t.form.spoilerTransHard],
+                        ['fade_black', t.form.spoilerTransBlack],
+                        ['fade_white', t.form.spoilerTransWhite],
+                      ] as const).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`pill-btn ${spoilerTransition === id ? 'active' : ''}`}
+                          style={{ fontSize: '0.72rem', padding: '0.2rem 0.55rem' }}
+                          disabled={loading}
+                          onClick={() => {
+                            setSpoilerTransition(id);
+                            localStorage.setItem('cheat_clip_spoiler_transition', id);
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={spoilerLabel}
+                        disabled={loading}
+                        onChange={e => {
+                          setSpoilerLabel(e.target.checked);
+                          localStorage.setItem('cheat_clip_spoiler_label', e.target.checked ? '1' : '0');
+                        }}
+                      />
+                      {t.form.spoilerLabelOption}
+                    </label>
+                  </div>
+                )}
+                {spoilerOn && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.35 }}>
+                    💡 {t.form.spoilerTip(spoilerSeconds)}
+                  </span>
+                )}
+              </div>
+
               {/* Focus Prompt Search Keyword */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -4729,6 +4820,7 @@ Transcript:
           videoUrl={result.video_url || url}
           videoId={result.video_id}
           transcript={result.transcript}
+          spoilerSeconds={spoilerOn ? spoilerSeconds : 0}
           allClips={result.clips}
           markedClips={markedClipsList}
           activeClip={activeClip}

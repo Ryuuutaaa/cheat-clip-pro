@@ -79,9 +79,15 @@ class RenderSettingsModel(BaseModel):
     watermark_x: Optional[float] = 90.0
     watermark_y: Optional[float] = 8.0
     hardware_accel: Optional[str] = "auto"
-    # Transition applied to a clip's own edges, e.g. "black:0.3" (ranked parts use it so the clips
-    # dip through a colour between each other)
+    # Transition applied to a clip's own edges, e.g. "black:0.3" (both), "in:black:0.3" (fade in
+    # only) or "out:white:0.3" (fade out only)
     fade_in_out: Optional[str] = None
+    # Spoiler hook: each clip opens with a short teaser cut from its own hook moment, so the final
+    # length becomes spoiler_seconds + the clip's own duration.
+    spoiler_enabled: bool = False
+    spoiler_seconds: float = 3.0
+    spoiler_label: bool = False
+    spoiler_transition: str = "hard"        # hard | fade_black | fade_white
     rank_highlight: Optional[RankHighlightModel] = None
 
 class RenderBatchRequest(BaseModel):

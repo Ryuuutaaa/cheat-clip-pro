@@ -43,6 +43,8 @@ interface ClipStudioSectionProps {
   heatmap?: HeatmapPoint[];
   /** Rank page only: shows the rank-highlight card and skips clip-only defaults. */
   rankMode?: boolean;
+  /** Spoiler hook length in seconds; > 0 means every clip opens with a teaser. */
+  spoilerSeconds?: number;
 }
 
 function getFriendlyErrorMessage(rawMsg: string): string {
@@ -215,6 +217,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   onRetryClip,
   transcript,
   heatmap,
+  spoilerSeconds = 0,
   rankMode = false,
 }) => {
   const { t } = useLanguage();
@@ -4150,6 +4153,22 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               <span className="preview-title" style={{ fontWeight: 700, fontSize: '0.88rem' }}>
                 {rankMode ? t.studio.rankLivePreview : t.studio.livePreview}
               </span>
+              {!rankMode && spoilerSeconds > 0 && (
+                <span
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    color: '#f59e0b',
+                    background: 'rgba(245, 158, 11, 0.14)',
+                    border: '1px solid rgba(245, 158, 11, 0.35)',
+                    padding: '0.15rem 0.45rem',
+                    borderRadius: '6px',
+                  }}
+                  title={t.studio.spoilerBadgeTitle(spoilerSeconds)}
+                >
+                  ⏱ +{spoilerSeconds}s {t.studio.spoilerBadgeShort}
+                </span>
+              )}
               <span
                 className="preview-indicator"
                 style={{

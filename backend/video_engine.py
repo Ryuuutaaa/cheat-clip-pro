@@ -3847,27 +3847,39 @@ def render_clip_to_mp4(
     else:
         out_audio_map = "0:a:0?"
 
-    # Clip transition: a short fade from a colour at the start and back into it at the end. Applied
-    # per clip, so concatenated clips dip through that colour between each other.
+    # Clip transition: a short fade from a colour at the start, back into it at the end, or either
+    # side on its own ("out:black:0.3" lets the next clip fade in from the same colour).
     if fade_in_out:
+        chunks = str(fade_in_out).split(":")
+        fade_mode = "both"
+        if chunks and chunks[0] in ("in", "out", "both"):
+            fade_mode = chunks.pop(0)
+        colour_raw = chunks[0] if chunks else "black"
+        secs_raw = chunks[1] if len(chunks) > 1 else "0.3"
         try:
-            fade_colour, fade_secs_raw = str(fade_in_out).split(":", 1)
-            fade_secs = max(0.05, min(2.0, float(fade_secs_raw)))
+            fade_secs = max(0.05, min(2.0, float(secs_raw)))
         except (ValueError, TypeError):
-            fade_colour, fade_secs = "black", 0.3
-        fade_colour = "white" if fade_colour == "white" else "black"
+            fade_secs = 0.3
+        fade_colour = "white" if colour_raw == "white" else "black"
         fade_out_start = max(0.0, dur - fade_secs)
-        filter_chains.append(
-            f"{out_video_map}fade=t=in:st=0:d={fade_secs:.2f}:color={fade_colour},"
-            f"fade=t=out:st={fade_out_start:.2f}:d={fade_secs:.2f}:color={fade_colour}[v_faded]"
-        )
-        out_video_map = "[v_faded]"
-        if out_audio_map and out_audio_map != "0:a:0?":
+
+        video_steps = []
+        if fade_mode in ("in", "both"):
+            video_steps.append(f"fade=t=in:st=0:d={fade_secs:.2f}:color={fade_colour}")
+        if fade_mode in ("out", "both"):
+            video_steps.append(f"fade=t=out:st={fade_out_start:.2f}:d={fade_secs:.2f}:color={fade_colour}")
+        if video_steps:
+            filter_chains.append(f"{out_video_map}{','.join(video_steps)}[v_faded]")
+            out_video_map = "[v_faded]"
+
+        audio_steps = []
+        if fade_mode in ("in", "both"):
+            audio_steps.append(f"afade=t=in:st=0:d={fade_secs:.2f}")
+        if fade_mode in ("out", "both"):
+            audio_steps.append(f"afade=t=out:st={fade_out_start:.2f}:d={fade_secs:.2f}")
+        if audio_steps and out_audio_map and out_audio_map != "0:a:0?":
             audio_base = out_audio_map if out_audio_map.startswith("[") else f"[{out_audio_map}]"
-            filter_chains.append(
-                f"{audio_base}afade=t=in:st=0:d={fade_secs:.2f},"
-                f"afade=t=out:st={fade_out_start:.2f}:d={fade_secs:.2f}[a_faded]"
-            )
+            filter_chains.append(f"{audio_base}{','.join(audio_steps)}[a_faded]")
             out_audio_map = "[a_faded]"
 
     final_filter_complex = ";".join(filter_chains)
