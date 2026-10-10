@@ -2043,12 +2043,7 @@ def build_rank_overlay_ass(
     # How each label lands: it can fade in where it belongs, or slide up into place as it appears.
     transition = (label_transition or "none").lower()
     slot_fade = "\\fad(300,0)" if transition in ("fade", "slide") else ""
-    if transition == "fade":
-        entry_motion = "\\fad(250,0)"
-    elif transition == "slide":
-        entry_motion = None  # built per entry, it needs the anchor position
-    else:
-        entry_motion = ""
+    entry_fade = "\\fad(200,0)" if transition == "slide" else ("\\fad(250,0)" if transition == "fade" else "")
     bar_w = int(420 * max(0.5, min(2.0, float(scale))))
     bar_h = max(4, int(10 * max(0.5, min(2.0, float(scale)))))
 
@@ -2064,7 +2059,7 @@ def build_rank_overlay_ass(
         for r in range(1, max_rank + 1):
             y_slot = _y_for(r)
             slot_text = (
-                f"{{\\an{anchor['an']}\\pos({list_x},{y_slot})}}{{\\fs{font_size}}}{slot_fade}"
+                f"{{\\an{anchor['an']}\\pos({list_x},{y_slot})\\fs{font_size}{slot_fade}}}"
                 f"{{\\c&H60FFFFFF&}}{r}."
             )
             lines.append(f"Dialogue: 0,0:00:00.00,{_ass_timestamp(total)},RankSlot,,0,0,0,,{slot_text}")
@@ -2095,15 +2090,13 @@ def build_rank_overlay_ass(
         est_width = (len(label) + len(number) + 1) * font_size * 0.56
         avail = max(200.0, float(width) - list_x - 40.0)
         line_fs = font_size if est_width <= avail else max(18, int(font_size * avail / est_width))
-        if entry_motion is None:
-            # Slide: start a little lower and travel into place while fading in.
-            motion_tag = f"\\move({list_x},{y + 70},{list_x},{y},0,300)\\fad(200,0)"
-        elif entry_motion:
-            motion_tag = entry_motion
+        # A slide needs \move instead of \pos: the two conflict, and libass ignores one of them.
+        if transition == "slide":
+            placement = f"\\move({list_x},{y + 70},{list_x},{y},0,300)"
         else:
-            motion_tag = ""
+            placement = f"\\pos({list_x},{y})"
         text = (
-            f"{{\\an{anchor['an']}\\pos({list_x},{y})\\fs{line_fs}{bold_tag}{border_tag}{motion_tag}}}"
+            f"{{\\an{anchor['an']}{placement}\\fs{line_fs}{bold_tag}{border_tag}{entry_fade}}}"
             f"{{\\c{colour}}}{number}{{\\c&H00FFFFFF&}}{label}"
         )
         lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(total)},RankItem,,0,0,0,,{text}")

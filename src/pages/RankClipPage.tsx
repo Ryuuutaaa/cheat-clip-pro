@@ -144,7 +144,7 @@ export const RankClipPage: React.FC<RankClipPageProps> = ({ apiKey, model }) => 
   const deleteAllRenderedFiles = () => {
     if (!renderedFiles.length) return;
     if (!window.confirm(t.rankPage.finishedDeleteAllConfirm(renderedFiles.length))) return;
-    fetch('/api/rendered-files?kind=ranking', { method: 'DELETE' })
+    fetch('/api/rendered-files?kind=ranking&confirm=all', { method: 'DELETE' })
       .then(r => {
         if (!r.ok) throw new Error(String(r.status));
         setRenderedFiles([]);

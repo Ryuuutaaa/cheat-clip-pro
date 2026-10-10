@@ -262,11 +262,14 @@ def list_rendered_files(kind: Optional[str] = None, limit: int = 12):
 
 
 @router.delete("/api/rendered-files")
-def delete_all_rendered_files(request: Request, kind: Optional[str] = "ranking"):
+def delete_all_rendered_files(request: Request, kind: Optional[str] = "ranking", confirm: Optional[str] = None):
     """Removes every finished render of one kind. Same-origin only, like the single delete.
 
-    Only the videos go; the ZIP archives stay, so a mistake here is still recoverable.
+    Requires confirm=all deliberately: a bulk wipe should never be one stray call away, and the ZIP
+    archives stay, so even a confirmed mistake can be recovered.
     """
+    if confirm != "all":
+        raise HTTPException(status_code=400, detail="Bulk delete needs confirm=all")
     if not _origin_is_allowed(request.headers.get("origin", "")):
         raise HTTPException(status_code=403, detail="Cross-origin request rejected")
 
