@@ -412,7 +412,23 @@ async def render_single_batch_clip(
                 await asyncio.to_thread(merge_rank_highlight, [spoiler_part, out_path], "", merged_path)
                 if os.path.exists(merged_path) and is_valid_mp4(merged_path):
                     os.replace(merged_path, out_path)
-                    logger.info(f"Spoiler hook prepended to clip {idx + 1} ({out_filename})")
+                    # A file with a spoiler in front must not look identical to the plain render
+                    # sitting next to it in the saved list, so the name says which it is.
+                    spoiler_secs = int(round(float(getattr(settings, "spoiler_seconds", 3.0) or 3.0)))
+                    marked_name = f"clip_{idx + 1}_spoiler{spoiler_secs}s_{batch_id}.mp4"
+                    marked_path = str(EXPORTS_DIR / marked_name)
+                    try:
+                        os.replace(out_path, marked_path)
+                        out_filename = marked_name
+                        out_path = marked_path
+                    except OSError:
+                        pass
+                    spoiler_length = float(getattr(settings, "spoiler_seconds", 3.0) or 3.0)
+                    clip_status["length_seconds"] = round(duration_sec + spoiler_length, 1)
+                    logger.info(
+                        f"Spoiler hook prepended to clip {idx + 1} ({out_filename}): "
+                        f"{duration_sec:.1f}s clip + {spoiler_length:.1f}s hook"
+                    )
                 else:
                     logger.warning(f"Spoiler merge produced no usable file for clip {idx}; keeping the clip alone")
             except Exception as e:
@@ -425,7 +441,6 @@ async def render_single_batch_clip(
                             os.remove(_part)
                         except Exception:
                             pass
-            clip_status["length_seconds"] = round(duration_sec + float(getattr(settings, "spoiler_seconds", 3.0) or 3.0), 1)
 
         clip_status["status"] = "completed"
         clip_status["progress_percent"] = 100
